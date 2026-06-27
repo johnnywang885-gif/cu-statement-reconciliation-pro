@@ -92,12 +92,16 @@ try {
 
     if ($Add -ne "") {
         if (-not $needWrite) { $db.Close(); $db = $dbe.OpenDatabase($cubPath, $false, $false, $connectStr) }
-        $rs = $db.OpenRecordset("SELECT 帳號, 姓名 FROM [M_對帳明細] WHERE 帳號='$Add'")
+        $qdef = $db.CreateQueryDef("", "SELECT 帳號, 姓名 FROM [M_對帳明細] WHERE 帳號=[p_acc]")
+        $qdef.Parameters("p_acc").Value = $Add
+        $rs = $qdef.OpenRecordset()
         if ($rs.EOF) {
             Write-Host "  帳號 $Add 不存在 M_對帳明細 中" -ForegroundColor Red
         }
         else {
-            $db.Execute("UPDATE [M_對帳明細] SET 不寄發=True, 不寄發原因='手動登錄' WHERE 帳號='$Add'")
+            $qdef = $db.CreateQueryDef("", "UPDATE [M_對帳明細] SET 不寄發=True, 不寄發原因='手動登錄' WHERE 帳號=[p_acc]")
+            $qdef.Parameters("p_acc").Value = $Add
+            $qdef.Execute()
             Write-Host "  已將 $Add ($($rs.Fields("姓名").Value)) 加入不寄發清單" -ForegroundColor Green
         }
         $rs.Close()
@@ -105,7 +109,9 @@ try {
 
     if ($Remove -ne "") {
         if (-not $needWrite) { $db.Close(); $db = $dbe.OpenDatabase($cubPath, $false, $false, $connectStr) }
-        $db.Execute("UPDATE [M_對帳明細] SET 不寄發=False, 不寄發原因=Null WHERE 帳號='$Remove'")
+        $qdef = $db.CreateQueryDef("", "UPDATE [M_對帳明細] SET 不寄發=False, 不寄發原因=Null WHERE 帳號=[p_acc]")
+        $qdef.Parameters("p_acc").Value = $Remove
+        $qdef.Execute()
         Write-Host "  已將 $Remove 移除不寄發清單" -ForegroundColor Green
     }
 

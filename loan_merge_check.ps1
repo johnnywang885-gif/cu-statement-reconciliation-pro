@@ -17,6 +17,7 @@ param(
     [switch]$SubstantiveReview,
     [switch]$ApplicationReview,
     [switch]$CompareList,
+    [string]$SourcePassword = "",
     [string]$CubPassword = ""
 )
 
@@ -47,6 +48,7 @@ if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
         if ($ApplicationReview) { $argList += '-ApplicationReview' }
         if ($CompareList) { $argList += '-CompareList' }
         if ($CubPassword -ne '') { $argList += '-CubPassword', $CubPassword }
+        if ($SourcePassword -ne '') { $argList += '-SourcePassword', $SourcePassword }
         & $ps32 -ExecutionPolicy Bypass -File "`"$PSCommandPath`"" @argList
         exit $LASTEXITCODE
     }
@@ -110,7 +112,8 @@ try {
         try { $db.TableDefs.Delete($linkName) } catch {}
 
         $td = $db.CreateTableDef($linkName)
-        $td.Connect = ";DATABASE=$sourcePath"
+        $srcPwd = if ($SourcePassword) { ";PWD=$SourcePassword" } else { "" }
+        $td.Connect = ";DATABASE=$sourcePath$srcPwd"
         $td.SourceTableName = "M_Loan_All"
         $db.TableDefs.Append($td)
 

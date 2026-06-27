@@ -191,27 +191,37 @@ Write-Host "  篩選結果: $($filtered.Count) 筆" -ForegroundColor Cyan
 # Step 3: 寫回 M_對帳明細（只保留篩選結果）
 if ($filtered.Count -gt 0) {
     $db = $dbe.OpenDatabase($cubPath, $false, $false, $connectStr)
-    $db.Execute("DELETE FROM [M_對帳明細]")
-    $rs = $db.OpenRecordset("SELECT * FROM [M_對帳明細] WHERE False")
-    $written = 0
-    foreach ($r in $filtered) {
-        $rs.AddNew()
-        $rs.Fields("基準日").Value = $r.基準日
-        $rs.Fields("社號").Value = $r.社號
-        $rs.Fields("帳號").Value = $r.帳號
-        $rs.Fields("姓名").Value = $r.姓名
-        $rs.Fields("股金").Value = $r.股金
-        $rs.Fields("貸款").Value = $r.貸款
-        $rs.Fields("備轉金").Value = $r.備轉金
-        if ($r.寄發) { $rs.Fields("寄發").Value = $true }
-        if ($r.不寄發) { $rs.Fields("不寄發").Value = $true }
-        $rs.Update()
-        $written++
+    $ws = $dbe.Workspaces(0)
+    $ws.BeginTrans()
+    try {
+        $db.Execute("DELETE FROM [M_對帳明細]")
+        $rs = $db.OpenRecordset("SELECT * FROM [M_對帳明細] WHERE False")
+        $written = 0
+        foreach ($r in $filtered) {
+            $rs.AddNew()
+            $rs.Fields("基準日").Value = $r.基準日
+            $rs.Fields("社號").Value = $r.社號
+            $rs.Fields("帳號").Value = $r.帳號
+            $rs.Fields("姓名").Value = $r.姓名
+            $rs.Fields("股金").Value = $r.股金
+            $rs.Fields("貸款").Value = $r.貸款
+            $rs.Fields("備轉金").Value = $r.備轉金
+            if ($r.寄發) { $rs.Fields("寄發").Value = $true }
+            if ($r.不寄發) { $rs.Fields("不寄發").Value = $true }
+            $rs.Update()
+            $written++
+        }
+        $rs.Close()
+        $ws.CommitTrans()
+        $db.Close()
+        Write-Host "  已更新 M_對帳明細: $written 筆" -ForegroundColor Green
+        Write-Host "  開啟 Access → 對帳單作業 → 列印" -ForegroundColor Green
     }
-    $rs.Close()
-    $db.Close()
-    Write-Host "  已更新 M_對帳明細: $written 筆" -ForegroundColor Green
-    Write-Host "  開啟 Access → 對帳單作業 → 列印" -ForegroundColor Green
+    catch {
+        $ws.Rollback()
+        $db.Close()
+        Write-Host "  更新失敗，已復原: $_" -ForegroundColor Red
+    }
 }
 else {
     Write-Host "  無符合條件的資料，M_對帳明細未修改" -ForegroundColor Yellow

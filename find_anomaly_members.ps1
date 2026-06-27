@@ -98,7 +98,7 @@ try {
     $dbe = New-Object -ComObject DAO.DBEngine.120
 
     # ── Step 1: 讀取查核期間 ───────────────────────────────────────────────────────────
-    Write-Host "[1/6] 讀取查核期間..." -ForegroundColor Yellow
+    Write-Host "[1/9] 讀取查核期間..." -ForegroundColor Yellow
     try {
         $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     }
@@ -159,7 +159,7 @@ try {
     Write-Host "  準備金總額: $($script:TotalReserve), 女性貸款上限: $femaleLimit" -ForegroundColor DarkGray
 
     # ── Step 2: 讀取社員主檔 SER ────────────────────────────────────────────────────────
-    Write-Host "[2/10] 讀取社員主檔..." -ForegroundColor Yellow
+    Write-Host "[2/9] 讀取社員主檔..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, ACCNM, NAM, PRESTK, SSAV, NOSTK, PREBO, BORO, LNMNY, PREFO, FO, NOFO, ADDR, TEL, BIRTH, SEX, GRPNO, INDAT, TYPE FROM SER ORDER BY ACCNO")
     $memberMap = @{}
@@ -212,7 +212,7 @@ try {
     Write-Host "  共 $memberCount 位會員" -ForegroundColor DarkGray
 
     # ── Step 3: 從 LGR 計算各項餘額 ─────────────────────────────────────────────────────
-    Write-Host "[3/10] 從 LGR 計算各項餘額..." -ForegroundColor Yellow
+    Write-Host "[3/9] 從 LGR 計算各項餘額..." -ForegroundColor Yellow
 
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, Sum(IIf(DC='C',1,-1)*MNY) AS BLN FROM LGR WHERE (Left(ACNO,3)='310' OR ACNO='216') AND DCHK='Y' GROUP BY ACCNO")
@@ -247,7 +247,7 @@ try {
     }
 
     # ── Step 4: 逾期貸款 + 貸款筆數 ───────────────────────────────────────────────────
-    Write-Host "[4/10] 檢查逾期貸款及貸款筆數..." -ForegroundColor Yellow
+    Write-Host "[4/9] 檢查逾期貸款及貸款筆數..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, Count(*) AS BadCnt, Sum(IIf(IsNull(OWEBR),0,OWEBR)) AS TotOWEBR, Sum(IIf(IsNull(OWEINT),0,OWEINT)) AS TotOWEINT FROM BOROW WHERE IIf(IsNull(OWEBR),0,OWEBR) > 0 OR IIf(IsNull(OWEINT),0,OWEINT) > 0 GROUP BY ACCNO")
     while (-not $rs.EOF) {
@@ -273,7 +273,7 @@ try {
     Write-Host "  完成" -ForegroundColor DarkGray
 
     # ── Step 5: 檢查利率異常（包含 BORAT、PUNRAT、DLYRAT）───────────────────────────
-    Write-Host "[5/10] 檢查利率異常..." -ForegroundColor Yellow
+    Write-Host "[5/9] 檢查利率異常..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     try {
         # 5A: BORAT <> RATY
@@ -317,7 +317,7 @@ try {
     $db.Close()
 
     # ── Step 6: 近期交易 ─────────────────────────────────────────────────────────
-    Write-Host "[6/10] 檢查近期交易..." -ForegroundColor Yellow
+    Write-Host "[6/9] 檢查近期交易..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, Count(*) AS TxnCnt FROM LGR WHERE DAT >= '$bDate' AND DAT <= '$eDate' AND DCHK='Y' GROUP BY ACCNO")
     while (-not $rs.EOF) {
@@ -330,7 +330,7 @@ try {
     Write-Host "  完成" -ForegroundColor DarkGray
 
     # ── Step 7: 其他異常檢查 ───────────────────────────────────────────────────
-    Write-Host "[7/10] 其他異常檢查..." -ForegroundColor Yellow
+    Write-Host "[7/9] 其他異常檢查..." -ForegroundColor Yellow
 
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
 
@@ -558,16 +558,27 @@ try {
             $a = $rs.Fields("ACCNO").Value
             $datVal = [string]$rs.Fields("DAT").Value
             $councilVal = [string]$rs.Fields("COUNCILDAT").Value
-            if ($datVal -and $councilVal -and $datVal.Length -ge 7 -and $councilVal.Length -ge 7) {
-                try {
-                    $datDt = [datetime]::new([int]($datVal.Substring(0, 3)) + 1911, [int]($datVal.Substring(4, 2)), [int]($datVal.Substring(6, 2)))
-                    $councilDt = [datetime]::new([int]($councilVal.Substring(0, 3)) + 1911, [int]($councilVal.Substring(4, 2)), [int]($councilVal.Substring(6, 2)))
-                    # 審查後超過 2 個月仍未撥款
-                    if (($datDt - $councilDt).TotalDays -gt 60) {
-                        $auditOverdue[$a] = $true
-                    }
+            if ($datVal -and $councilVal) {
+                function Resolve-Date($s) {
+                    if (-not $s) { return $null }
+                    $m = [regex]::Match($s, '^(\d{3})/(\d{1,2})/(\d{1,2})$')
+                    if ($m.Success) { return [datetime]::new([int]$m.Groups[1].Value + 1911, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value) }
+                    $m = [regex]::Match($s, '^(\d{3})(\d{2})(\d{2})$')
+                    if ($m.Success) { return [datetime]::new([int]$m.Groups[1].Value + 1911, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value) }
+                    $dt = $null
+                    [datetime]::TryParseExact($s, @("yyyy/MM/dd","yyyy/M/d","yyyyMMdd"), $null, 'None', [ref]$dt) | Out-Null
+                    return $dt
                 }
-                catch { }
+                $datDt = Resolve-Date $datVal
+                $councilDt = Resolve-Date $councilVal
+                if (-not $datDt -or -not $councilDt) {
+                    Write-Host "  ⚠ 日期解析失敗: ACCNO=$a, DAT=$datVal, COUNCILDAT=$councilVal" -ForegroundColor Yellow
+                    $rs.MoveNext(); continue
+                }
+                # 審查後超過 2 個月仍未撥款
+                if (($datDt - $councilDt).TotalDays -gt 60) {
+                    $auditOverdue[$a] = $true
+                }
             }
             $rs.MoveNext()
         }
@@ -652,7 +663,7 @@ try {
     Write-Host "  其他異常檢查完成" -ForegroundColor DarkGray
 
     # ── Step 8: 計算異常分數 ─────────────────────────────────────────────────────────
-    Write-Host "[8/10] 計算異常分數..." -ForegroundColor Yellow
+    Write-Host "[8/9] 計算異常分數..." -ForegroundColor Yellow
 
     $results = @()
     foreach ($a in $memberMap.Keys) {
@@ -741,7 +752,7 @@ try {
     Write-Host "`n=== 開啟CSV 可搭配 Excel 開啟 ===" -ForegroundColor Green
 
     # ── Step 9: 寫入 CUB.MDB 的 M_對帳明細 ──────────────────────────────────────────
-    Write-Host "`n[9/10] 寫入 CUB.MDB 的 M_對帳明細..." -ForegroundColor Yellow
+    Write-Host "`n[9/9] 寫入 CUB.MDB 的 M_對帳明細..." -ForegroundColor Yellow
     try {
         $dbCu = $dbe.OpenDatabase($CubPath, $false, $false, $connectStr)
         $rsCu = $dbCu.OpenRecordset("SELECT SRNO FROM PARA")

@@ -88,20 +88,27 @@ try {
         $db.Close(); $db = $dbe.OpenDatabase($cubPath, $false, $false, $connectStr)
     }
 
-    $where = @()
-    if ($FilterYearMonth -ne "") { $where += "年月='" + $FilterYearMonth + "'" }
+    $whereClauses = @()
+    $params = @{}
+    if ($FilterYearMonth -ne "") {
+        $whereClauses += "年月=[p_ym]"
+        $params["p_ym"] = $FilterYearMonth
+    }
     if ($Find -ne "") {
         $padded = Pad-Account $Find
-        $where += "帳號='" + $padded + "'"
+        $whereClauses += "帳號=[p_acc]"
+        $params["p_acc"] = $padded
     }
 
     $sql = "SELECT * FROM [k_對帳單回覆]"
-    if ($where.Count -gt 0) {
-        $sql += " WHERE " + ($where -join " AND ")
+    if ($whereClauses.Count -gt 0) {
+        $sql += " WHERE " + ($whereClauses -join " AND ")
     }
     $sql += " ORDER BY 年月, 帳號"
 
-    $rs = $db.OpenRecordset($sql)
+    $qdef = $db.CreateQueryDef("", $sql)
+    foreach ($k in $params.Keys) { $qdef.Parameters($k).Value = $params[$k] }
+    $rs = $qdef.OpenRecordset()
     Write-Host "`n=== 對帳單回覆清單 ===" -ForegroundColor Cyan
     $count = 0
     while (-not $rs.EOF) {
@@ -124,11 +131,16 @@ try {
         $today = (Get-Date).ToString("yyyy/MM/dd")
 
         # 查戶名
-        $rs2 = $db.OpenRecordset("SELECT ACCNM FROM SER WHERE ACCNO='$padded'")
+        $qdef = $db.CreateQueryDef("", "SELECT ACCNM FROM SER WHERE ACCNO=[p_acc]")
+        $qdef.Parameters("p_acc").Value = $padded
+        $rs2 = $qdef.OpenRecordset()
         $name = if (-not $rs2.EOF) { $rs2.Fields("ACCNM").Value } else { "" }
         $rs2.Close()
 
-        $rs2 = $db.OpenRecordset("SELECT * FROM [k_對帳單回覆] WHERE 年月='$ym' AND 帳號='$padded'")
+        $qdef = $db.CreateQueryDef("", "SELECT * FROM [k_對帳單回覆] WHERE 年月=[p_ym] AND 帳號=[p_acc]")
+        $qdef.Parameters("p_ym").Value = $ym
+        $qdef.Parameters("p_acc").Value = $padded
+        $rs2 = $qdef.OpenRecordset()
         if ($rs2.EOF) {
             $rs2.AddNew()
             $rs2.Fields("年月").Value = $ym
@@ -157,15 +169,8 @@ finally {
 
 function Pad-Account {
     param([string]$Acc)
-    if ($Acc.Length -eq 0) { return $Acc }
-    $first = $Acc[0]
-    $rest = if ($Acc.Length -gt 1) { $Acc.Substring(1) } else { "" }
-    if ([char]::IsDigit($first)) {
-        return $first.ToString() + $rest.PadLeft(5, '0')
-    }
-    else {
-        return $first.ToString() + $rest.PadLeft(5, '0')
-    }
+    if ([string]::IsNullOrEmpty($Acc)) { return $Acc }
+    return $Acc.PadLeft(6, '0')
 }
 
 if (-not $List -and $Find -eq "" -and $FilterYearMonth -eq "" -and $Register -eq "") {

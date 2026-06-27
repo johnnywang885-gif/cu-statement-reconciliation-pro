@@ -141,7 +141,11 @@ try {
                 $total = $sum
                 $yr = if ($chkDate.Length -ge 7) { [int]($chkDate.Substring(0, 3)) } else { 0 }
 
-                $rs2 = $db.OpenRecordset("SELECT SN FROM [查核登記表] WHERE CUNO='$cuno' AND ChkDate=#" + $chkDate + "#")
+                $qdef = $db.CreateQueryDef("", "SELECT SN FROM [查核登記表] WHERE CUNO=[p_cuno] AND ChkDate=[p_chkdate]")
+                $qdef.Parameters("p_cuno").Value = $cuno
+                $chkDateObj = try { [datetime]$chkDate } catch { $null }
+                $qdef.Parameters("p_chkdate").Value = if ($chkDateObj) { $chkDateObj } else { $chkDate }
+                $rs2 = $qdef.OpenRecordset()
                 if ($rs2.EOF) {
                     $rs3 = $db.OpenRecordset("SELECT * FROM [查核登記表] WHERE False")
                     $rs3.AddNew()
@@ -178,16 +182,22 @@ try {
 
     # List audit register
     if ($List) {
-        $where = @()
-        if ($Year -ne "") { $where += "YR=" + [int]$Year }
-        if ($CUNO -ne "") { $where += "CUNO='" + $CUNO + "'" }
+        $whereClauses = @()
+        $params = @{}
+        if ($Year -ne "") { $whereClauses += "YR=" + [int]$Year }
+        if ($CUNO -ne "") {
+            $whereClauses += "CUNO=[p_cuno]"
+            $params["p_cuno"] = $CUNO
+        }
         $sql = "SELECT * FROM [查核登記表]"
-        if ($where.Count -gt 0) {
-            $sql += " WHERE " + ($where -join " AND ")
+        if ($whereClauses.Count -gt 0) {
+            $sql += " WHERE " + ($whereClauses -join " AND ")
         }
         $sql += " ORDER BY CUNO, ChkDate"
 
-        $rs = $db.OpenRecordset($sql)
+        $qdef = $db.CreateQueryDef("", $sql)
+        foreach ($k in $params.Keys) { $qdef.Parameters($k).Value = $params[$k] }
+        $rs = $qdef.OpenRecordset()
         Write-Host "`n=== 查核登記清單 ===" -ForegroundColor Cyan
         $count = 0
         while (-not $rs.EOF) {
