@@ -2,41 +2,92 @@
 chcp 950 >nul
 setlocal
 
+where pwsh >nul 2>nul
+if %errorlevel% neq 0 (
+    echo ================================================
+    echo    ¿ù»~¡G°»´ú¨ì¨t²Î¥¼¦w¸Ë PowerShell 7
+    echo ================================================
+    echo.
+    echo °õ¦æ¦¹¤u¨ã»Ý­n¦w¸Ë PowerShell 7 ^(pwsh.exe^)¡C
+    echo ½Ð¦Ü·L³n©x¤è©Î GitHub ¤U¸ü¦w¸Ë¡G
+    echo https://github.com/PowerShell/PowerShell/releases
+    echo.
+    echo ½Ð¦w¸Ë§¹¦¨«á­«·s°õ¦æ¦¹µ{¦¡¡C
+    echo.
+    pause
+    exit /b
+)
+
+set "SELECTED_CUB="
+set "DEFAULT_PWD=thifincub"
+set "CUB_PWD=%DEFAULT_PWD%"
+
+:SELECT_FILE
+for /f "tokens=*" %%i in ('pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0select_cub.ps1"') do set "NEW_CUB=%%i"
+
+if "%NEW_CUB%"=="" (
+    if "%SELECTED_CUB%"=="" (
+        echo.
+        echo ¥¼¿ï¾ÜÀÉ®×¡Aµ²§ô¡C
+        timeout /t 3 /nobreak >nul
+        exit /b
+    ) else (
+        echo.
+        echo ¨ú®ø§ó´«¡A«O«ù­ìÀÉ®×¡G%SELECTED_CUB%
+        timeout /t 2 /nobreak >nul
+        goto MENU
+    )
+)
+set "SELECTED_CUB=%NEW_CUB%"
+set "CUB_PWD=%DEFAULT_PWD%"
+goto GET_PASSWORD
+
+:GET_PASSWORD
+if not "%CUB_PWD%"=="" goto MENU
+cls
+echo.
+echo ================================================
+echo    CUB.MDB ±K½X
+echo ================================================
+echo.
+for /f "tokens=*" %%p in ('pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0get_password.ps1"') do set "CUB_PWD=%%p"
+if "%CUB_PWD%"=="" (
+    echo.
+    echo ±K½X¤£¥iªÅ¥Õ¡A½Ð­«·s¿é¤J¡C
+    timeout /t 2 /nobreak >nul
+    goto GET_PASSWORD
+)
+goto MENU
+
 :MENU
 cls
 echo.
 echo ================================================
-echo    å°å¸³å–®å·¥å…· - ç•°å¸¸ç¤¾å“¡éŽæ¿¾èˆ‡æŽ’åºç³»çµ±
+echo    ¹ï±b³æ - ²§±`ªÀ­û¿z¿ï¨t²Î
 echo ================================================
 echo.
-echo   1. åŸ·è¡Œç•°å¸¸åµæ¸¬
-echo   2. ä¾æ¯”ä¾‹éŽæ¿¾
-echo   3. ä¸å¯„ç™¼å°å¸³å–®ç®¡ç†
-echo   4. å°å¸³å–®å›žè¦†ç™»éŒ„
-echo   5. æŸ¥æ ¸ç™»è¨˜ç®¡ç†
-echo   6. ç§‘ç›®å¹´åº¦çµé¤˜
-echo   7. è²¸æ¬¾æŸ¥æ ¸åˆä½µ
-echo   8. çµæŸ
+echo   ¥Ø«e CUB.MDB¡G%SELECTED_CUB%
+echo.
+echo   1. °»´ú²§±`
+echo   2. ¦Ê¤À¤ñ¿z¿ï
+echo   8. ¿ï CUB.MDB
+echo   9. µ²§ô
 echo.
 echo ================================================
-set /p CHOICE=è«‹è¼¸å…¥é¸é … (1-8):
+set /p CHOICE=½Ð¿é¤J¿ï¶µ (1-9):
 
 if "%CHOICE%"=="1" goto RUN_ANOMALY
 if "%CHOICE%"=="2" goto FILTER_PERCENT
-if "%CHOICE%"=="3" goto MANAGE_NONMAIL
-if "%CHOICE%"=="4" goto RECONCILE_REPLY
-if "%CHOICE%"=="5" goto AUDIT_REGISTER
-if "%CHOICE%"=="6" goto BALANCE_CHECK
-if "%CHOICE%"=="7" goto LOAN_MERGE
-if "%CHOICE%"=="8" goto END
+if "%CHOICE%"=="8" goto SELECT_FILE
+if "%CHOICE%"=="9" goto END
 goto MENU
 
 :RUN_ANOMALY
 cls
 echo.
-echo æ­£åœ¨åŸ·è¡Œç•°å¸¸åµæ¸¬...
+echo ¥¿¦b°õ¦æ²§±`°»´ú...
 echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0find_anomaly_members.ps1" %*
+pwsh -ExecutionPolicy Bypass -File "%~dp0find_anomaly_members.ps1" -CubPath "%SELECTED_CUB%" -CubPassword "%CUB_PWD%"
 echo.
 pause
 goto MENU
@@ -44,65 +95,19 @@ goto MENU
 :FILTER_PERCENT
 cls
 echo.
-echo æ­£åœ¨ä¾æ¢ä»¶ç¯©é¸ M_å°å¸³æ˜Žç´°...
+echo ¥¿¦b¨Ì¤ñ¨Ò¹LÂo...
 echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0filter_by_percent.ps1" %*
-echo.
-pause
-goto MENU
-
-:MANAGE_NONMAIL
-cls
-echo.
-echo ä¸å¯„ç™¼å°å¸³å–®ç®¡ç†...
-echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0manage_nonmail.ps1" %*
+set /p PCT=½Ð¿é¤J¿z¿ï¦Ê¤À¤ñ (1-100):
+if "%PCT%"=="" goto FILTER_PERCENT
+set /a PCT_NUM=%PCT% 2>nul
+if %PCT_NUM% leq 0 goto FILTER_PERCENT
+if %PCT_NUM% gtr 100 goto FILTER_PERCENT
+pwsh -ExecutionPolicy Bypass -File "%~dp0filter_by_percent.ps1" -Percent %PCT%
 echo.
 pause
 goto MENU
-
-:RECONCILE_REPLY
-cls
-echo.
-echo å°å¸³å–®å›žè¦†ç™»éŒ„...
-echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0reconcile_reply.ps1" %*
-echo.
-pause
-goto MENU
-
-:AUDIT_REGISTER
-cls
-echo.
-echo æŸ¥æ ¸ç™»è¨˜ç®¡ç†...
-echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0audit_register.ps1" %*
-echo.
-pause
-goto MENU
-
-:BALANCE_CHECK
-cls
-echo.
-echo ç§‘ç›®å¹´åº¦çµé¤˜...
-echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0balance_check.ps1" %*
-echo.
-pause
-goto MENU
-
-:LOAN_MERGE
-cls
-echo.
-echo è²¸æ¬¾æŸ¥æ ¸åˆä½µä½œæ¥­...
-echo.
-powershell -ExecutionPolicy Bypass -File "%~dp0loan_merge_check.ps1" %*
-echo.
-pause
-goto MENU
-
 :END
 cls
 echo.
-echo å†è¦‹ï¼
+echo ¦A¨£¡I
 timeout /t 2 /nobreak >nul

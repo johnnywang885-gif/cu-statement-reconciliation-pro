@@ -40,7 +40,7 @@ if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
         if ($Add) { $argList += '-Add', $Add }
         if ($Remove) { $argList += '-Remove', $Remove }
         if ($CubPassword -ne '') { $argList += '-CubPassword', $CubPassword }
-        & $ps32 -ExecutionPolicy Bypass -File $PSCommandPath @argList
+        & $ps32 -ExecutionPolicy Bypass -File "`"$PSCommandPath`"" @argList
         exit $LASTEXITCODE
     }
 }
@@ -124,7 +124,6 @@ catch {
     Write-Host "  錯誤: $_" -ForegroundColor Red
 }
 finally {
-    if ($db) { try { $db.Close() } catch {} }
     if ($dbe) { [Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) | Out-Null }
 }
 

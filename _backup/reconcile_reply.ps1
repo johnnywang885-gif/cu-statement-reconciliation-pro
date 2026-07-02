@@ -44,7 +44,7 @@ if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
         if ($Register) { $argList += '-Register', $Register }
         if ($YearMonth) { $argList += '-YearMonth', $YearMonth }
         if ($CubPassword -ne '') { $argList += '-CubPassword', $CubPassword }
-        & $ps32 -ExecutionPolicy Bypass -File $PSCommandPath @argList
+        & $ps32 -ExecutionPolicy Bypass -File "`"$PSCommandPath`"" @argList
         exit $LASTEXITCODE
     }
 }
@@ -59,12 +59,6 @@ $CubPath = [System.IO.Path]::GetFullPath($CubPath)
 if (-not (Test-Path $CubPath)) { Write-Host "  找不到 CUB.MDB: $CubPath" -ForegroundColor Red; exit 1 }
 
 $connectStr = ";PWD=$CubPassword"
-
-function Pad-Account {
-    param([string]$Acc)
-    if ([string]::IsNullOrEmpty($Acc)) { return $Acc }
-    return $Acc.PadLeft(6, '0')
-}
 
 try {
     $dbe = New-Object -ComObject DAO.DBEngine.120
@@ -173,10 +167,14 @@ catch {
     Write-Host "  錯誤: $_" -ForegroundColor Red
 }
 finally {
-    if ($db) { try { $db.Close() } catch {} }
     if ($dbe) { [Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) | Out-Null }
 }
 
+function Pad-Account {
+    param([string]$Acc)
+    if ([string]::IsNullOrEmpty($Acc)) { return $Acc }
+    return $Acc.PadLeft(6, '0')
+}
 
 if (-not $List -and $Find -eq "" -and $FilterYearMonth -eq "" -and $Register -eq "") {
     Write-Host "`n用法:" -ForegroundColor Yellow

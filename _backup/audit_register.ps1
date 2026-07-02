@@ -47,9 +47,9 @@ if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
         if ($List) { $argList += '-List' }
         if ($Year) { $argList += '-Year', $Year }
         if ($CUNO) { $argList += '-CUNO', $CUNO }
-        if ($Import) { $argList += '-Import', $Import }
+        if ($Import) { $argList += '-Import', "`"$Import`"" }
         if ($CubPassword -ne '') { $argList += '-CubPassword', $CubPassword }
-        & $ps32 -ExecutionPolicy Bypass -File $PSCommandPath @argList
+        & $ps32 -ExecutionPolicy Bypass -File "`"$PSCommandPath`"" @argList
         exit $LASTEXITCODE
     }
 }
@@ -111,23 +111,19 @@ try {
 
         Write-Host "  從 Excel 匯入查核資料: $Import" -ForegroundColor Yellow
         try {
-            # 先建立 Excel 連結並確認可讀，再執行交易
+            $db.Execute("DELETE FROM [查核登記表]")
+
+            # 使用 DAO 連結 Excel
             $xlsPath = (Resolve-Path $Import).Path
             $linkName = "xls_Score_Link"
 
+            # 移除舊連結
             try { $db.TableDefs.Delete($linkName) } catch {}
 
             $td = $db.CreateTableDef($linkName)
             $td.Connect = "Excel 12.0;HDR=YES;Database=$xlsPath"
             $td.SourceTableName = "xls_Score"
             $db.TableDefs.Append($td)
-
-            # 先確認可讀取
-            $testRs = $db.OpenRecordset("SELECT COUNT(*) AS CNT FROM [$linkName]")
-            $testRs.Close()
-
-            $db.BeginTrans()
-            $db.Execute("DELETE FROM [查核登記表]")
 
             $rs = $db.OpenRecordset("SELECT * FROM [$linkName]")
             $imported = 0
@@ -178,15 +174,12 @@ try {
             }
             $rs.Close()
 
-            $db.CommitTrans()
             try { $db.TableDefs.Delete($linkName) } catch {}
 
             Write-Host "  已匯入 $imported 筆查核記錄" -ForegroundColor Green
         }
         catch {
-            $db.Rollback()
-            try { $db.TableDefs.Delete($linkName) } catch {}
-            Write-Host "  匯入失敗，已復原: $_" -ForegroundColor Red
+            Write-Host "  匯入失敗: $_" -ForegroundColor Red
         }
     }
 
@@ -231,7 +224,6 @@ catch {
     Write-Host "  錯誤: $_" -ForegroundColor Red
 }
 finally {
-    if ($db) { try { $db.Close() } catch {} }
     if ($dbe) { [Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) | Out-Null }
 }
 

@@ -1,34 +1,23 @@
 ﻿Set-StrictMode -Version Latest
 
 $script:AnomalyWeights = [ordered]@{
-    DiffShare       = 5
-    DiffLoan        = 5
-    DiffReserve     = 5
-    NonMember       = 5
-    Underage        = 4
-    RecentNewLoan   = 4
-    RateError       = 3
-    Type2Active     = 3
-    RelatedParty    = 3
-    LPNonClaim      = 2
-    SameAddrMul     = 2
-    NewJoinLoan     = 2
-    HasBalance      = 1
-    RecentTxnPerHit = 1
-    OverdueCap      = 4
-    OverdueDays     = 3
-    PenaltyRateErr  = 3
-    DelayRateErr    = 3
-    LongTermLoan    = 2
-    FemaleOverLimit = 3
-    NonRegLoanNew   = 3
-    RecDiscrepancy  = 2
-    AuditOverdue    = 2
-    ExceedPayDate   = 2
-    CollateralShort = 3
-    DirectorOverLimit = 3
-    PersonalOverLimit = 4
-    DuplicateLoan   = 1
+    DiffShare            = 5
+    DiffLoan             = 5
+    DiffReserve          = 5
+    NonMember            = 5
+    SameAddrMul          = 2
+    RelatedParty         = 3
+    NewJoinLoan          = 2
+    RecDiscrepancy       = 2
+    AuditOverdue         = 2
+    ExceedPayDate        = 1
+    DirectorOverLimit    = 3
+    DuplicateLoan        = 2
+    NegativeLoanBalance  = 4
+    LoanBeforeApproval   = 4
+    DormantActivation    = 4
+    NewAccountBurst      = 3
+    RoundAmountTxn       = 2
 }
 
 function Get-MemberValue {
@@ -77,54 +66,13 @@ function Get-AnomalyScore {
         $flags.Add(('備轉差{0}' -f $diffReserve)) | Out-Null
     }
 
-    $badLoans  = [int](Get-MemberValue $Member 'BadLoanCount')
-    $totOwebr  = [double](Get-MemberValue $Member 'TotOWEBR')
-    $totOweint = [double](Get-MemberValue $Member 'TotOWEINT')
-    if ($badLoans -gt 0) {
-        $overdueScore = [Math]::Min(
-            $script:AnomalyWeights.OverdueCap,
-            [Math]::Ceiling($totOwebr / 50000)
-        )
-        if ($overdueScore -lt 0) { $overdueScore = 0 }
-        $score += [int]$overdueScore
-        $flags.Add(('逾期{0}筆(本{1}/息{2})' -f $badLoans, $totOwebr, $totOweint)) | Out-Null
-    }
-
     if ([bool](Get-MemberValue $Member 'IsNonMember' $false)) {
         $score += $script:AnomalyWeights.NonMember
         $flags.Add('非社員貸款') | Out-Null
     }
-    if ([bool](Get-MemberValue $Member 'HasUnderageLoan' $false)) {
-        $score += $script:AnomalyWeights.Underage
-        $flags.Add('未成年貸款(<18)') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasRecentNewLoan' $false)) {
-        $score += $script:AnomalyWeights.RecentNewLoan
-        $flags.Add('查核期間新增貸款') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasRateDiscrepancy' $false)) {
-        $score += $script:AnomalyWeights.RateError
-        $flags.Add('利率與費率不符') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasPenaltyRateErr' $false)) {
-        $score += $script:AnomalyWeights.PenaltyRateErr
-        $flags.Add('懲罰利率與費率不符') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasDelayRateErr' $false)) {
-        $score += $script:AnomalyWeights.DelayRateErr
-        $flags.Add('滯納利率與費率不符') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasLPNonClaimLoan' $false)) {
-        $score += $script:AnomalyWeights.LPNonClaim
-        $flags.Add('LP非出險貸款') | Out-Null
-    }
     if ([bool](Get-MemberValue $Member 'HasSameAddressMultiple' $false)) {
         $score += $script:AnomalyWeights.SameAddrMul
         $flags.Add('同地址多戶貸款(>=3)') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasType2Activity' $false)) {
-        $score += $script:AnomalyWeights.Type2Active
-        $flags.Add('非正規社員活動') | Out-Null
     }
     if ([bool](Get-MemberValue $Member 'HasRelatedPartyLoan' $false)) {
         $score += $script:AnomalyWeights.RelatedParty
@@ -133,18 +81,6 @@ function Get-AnomalyScore {
     if ([bool](Get-MemberValue $Member 'HasNewJoinLoan' $false)) {
         $score += $script:AnomalyWeights.NewJoinLoan
         $flags.Add('新入社立即貸款') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasLongTermLoan' $false)) {
-        $score += $script:AnomalyWeights.LongTermLoan
-        $flags.Add('貸款年限過長(>84期)') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasFemaleOverLimit' $false)) {
-        $score += $script:AnomalyWeights.FemaleOverLimit
-        $flags.Add('女性貸款超額') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasNonRegLoan' $false)) {
-        $score += $script:AnomalyWeights.NonRegLoanNew
-        $flags.Add('非正規社員貸款') | Out-Null
     }
     if ([bool](Get-MemberValue $Member 'HasRecDiscrepancy' $false)) {
         $score += $script:AnomalyWeights.RecDiscrepancy
@@ -158,32 +94,33 @@ function Get-AnomalyScore {
         $score += $script:AnomalyWeights.ExceedPayDate
         $flags.Add('超過約定還款日期') | Out-Null
     }
-    if ([bool](Get-MemberValue $Member 'HasCollateralShort' $false)) {
-        $score += $script:AnomalyWeights.CollateralShort
-        $flags.Add('擔保品不足') | Out-Null
-    }
     if ([bool](Get-MemberValue $Member 'HasDirectorOverLimit' $false)) {
         $score += $script:AnomalyWeights.DirectorOverLimit
         $flags.Add('董監事貸款超限') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasPersonalOverLimit' $false)) {
-        $score += $script:AnomalyWeights.PersonalOverLimit
-        $flags.Add('個人貸放超過法定上限') | Out-Null
     }
     if ([bool](Get-MemberValue $Member 'HasDuplicateLoan' $false)) {
         $score += $script:AnomalyWeights.DuplicateLoan
         $flags.Add('重複交易') | Out-Null
     }
-
-    $recentTxn = [int](Get-MemberValue $Member 'RecentTxn')
-    if ($recentTxn -gt 0) {
-        $score += $script:AnomalyWeights.RecentTxnPerHit
-        $flags.Add(('近期交易{0}筆' -f $recentTxn)) | Out-Null
+    if ([bool](Get-MemberValue $Member 'HasDormantActivation' $false)) {
+        $score += $script:AnomalyWeights.DormantActivation
+        $flags.Add('休眠戶激活') | Out-Null
     }
-
-    $hasBalance = ($lgrShare -ne 0) -or ($lgrLoan -ne 0) -or ($lgrReserve -ne 0)
-    if ($hasBalance) {
-        $score += $script:AnomalyWeights.HasBalance
+    if ([bool](Get-MemberValue $Member 'HasRoundAmountTxn' $false)) {
+        $score += $script:AnomalyWeights.RoundAmountTxn
+        $flags.Add('整數金額(>=50%)') | Out-Null
+    }
+    if ([bool](Get-MemberValue $Member 'HasNewAccountBurst' $false)) {
+        $score += $script:AnomalyWeights.NewAccountBurst
+        $flags.Add('新帳戶短期爆發') | Out-Null
+    }
+    if ([bool](Get-MemberValue $Member 'HasNegativeLoanBalance' $false)) {
+        $score += $script:AnomalyWeights.NegativeLoanBalance
+        $flags.Add('貸款結餘為負') | Out-Null
+    }
+    if ([bool](Get-MemberValue $Member 'HasLoanBeforeApproval' $false)) {
+        $score += $script:AnomalyWeights.LoanBeforeApproval
+        $flags.Add('先放後審') | Out-Null
     }
 
     return [PSCustomObject]@{

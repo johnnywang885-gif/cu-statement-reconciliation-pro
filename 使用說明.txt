@@ -1,0 +1,38 @@
+==================================================
+              對帳單工具 v1 使用說明
+==================================================
+
+感謝使用本對帳單工具。請按照以下步驟進行安裝與使用：
+
+【步驟一：安裝必要軟體】
+1. 安裝 PowerShell 7+ (pwsh)
+   - 官方下載點：https://github.com/PowerShell/PowerShell/releases
+   - 請下載適合您系統的安裝檔（例如：PowerShell-7.x.x-win-x64.msi 或 x86.msi）並進行安裝。
+   - 原因：本工具的進階異常偵測指令碼需要 PowerShell 7+ 才能正常運作。
+
+2. 安裝 Microsoft Access Database Engine 2016 (32-bit)
+   - 官方下載點：https://www.microsoft.com/en-us/download/details.aspx?id=54920
+   - 注意：必須下載 32 位元版本（檔名通常為 AccessDatabaseEngine.exe，非 64 位元的 AccessDatabaseEngine_X64.exe）。
+   - 原因：本工具透過 DAO.DBEngine.120 元件讀取 CUB.MDB，此元件需要 32 位元的 Access Database Engine 驅動程式。
+
+【步驟二：準備資料庫檔案】
+1. 將您的信用部資料庫檔案「CUB.MDB」放入此資料夾中（與「對帳單.bat」同一個目錄）。
+   - 注意：檔名必須完全符合「CUB.MDB」（大寫或小寫皆可，但不可有其他多餘字元）。
+
+【步驟三：執行對帳單工具】
+1. 按兩下執行「對帳單.bat」。
+   - 如果系統提示安全性警告，請選擇「仍要執行」。
+2. 執行時會顯示選單，請依照畫面指示選擇要執行的功能：
+    - [1] 執行異常偵測（產出 CSV + 寫入 M_對帳明細）
+    - [2] 依百分比篩選（產出 CSV）
+    - [8] 重選 CUB.MDB
+    - [9] 結束程式
+3. 程式執行時，會安全地提示您輸入 CUB 資料庫的密碼（請輸入正確的 CUB 密碼，輸入時不會顯示字元，請直接輸入後按 Enter 即可）。
+
+【檔案清單說明】
+- 對帳單.bat          : 批次檔入口，按兩下即可啟動選單。
+- 使用說明.txt        : 本說明檔。
+- lib\AnomalyScore.psm1 : 異常分數權重與計算邏輯模組。
+- *.ps1               : 異常偵測、餘額檢查、資料匯入等 PowerShell 腳本。
+
+如有任何使用問題，請聯絡系統開發人員。

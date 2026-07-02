@@ -44,7 +44,7 @@ if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
         if ($ListAccounts) { $argList += '-ListAccounts' }
         if ($SelectCategory) { $argList += '-SelectCategory', $SelectCategory }
         if ($CubPassword -ne '') { $argList += '-CubPassword', $CubPassword }
-        & $ps32 -ExecutionPolicy Bypass -File $PSCommandPath @argList
+        & $ps32 -ExecutionPolicy Bypass -File "`"$PSCommandPath`"" @argList
         exit $LASTEXITCODE
     }
 }
@@ -96,7 +96,7 @@ try {
         switch ($SelectCategory) {
             "All" { $sql = "UPDATE [st_科目別] SET Selected=True" }
             "Assets" { $sql = "UPDATE [st_科目別] SET Selected=True WHERE 科目代號 < '2'" }
-            "Liabilities" { $sql = "UPDATE [st_科目別] SET Selected=True WHERE 科目代號 >= '2' AND 科目代號 < '3'" }
+            "Liabilities" { $sql = "UPDATE [st_科目別] SET Selected=True WHERE 科目代號 > '2' AND 科目代號 < '4'" }
             "Equity" { $sql = "UPDATE [st_科目別] SET Selected=True WHERE 科目代號 >= '3' AND 科目代號 < '4'" }
             "Incomes" { $sql = "UPDATE [st_科目別] SET Selected=True WHERE 科目代號 >= '326' AND 科目代號 < '5'" }
             "Expenses" { $sql = "UPDATE [st_科目別] SET Selected=True WHERE 科目代號 > '5'" }
@@ -119,9 +119,8 @@ try {
         while (-not $rs.EOF) {
             $code = [string]$rs.Fields("科目代號").Value
             $name = [string]$rs.Fields("科目名稱").Value
-            # 從 LGR 抓餘額（資產借方為正，負債/權益貸方為正）
-            $dir = if ($code -lt '2') { 'IIf(DC=''C'',-1,1)' } else { 'IIf(DC=''C'',1,-1)' }
-            $rs2 = $db.OpenRecordset("SELECT Sum($dir*MNY) AS BLN FROM LGR WHERE Left(ACNO,3)='" + $code + "' AND DCHK='Y'")
+            # 從 LGR 抓餘額
+            $rs2 = $db.OpenRecordset("SELECT Sum(IIf(DC='C',1,-1)*MNY) AS BLN FROM LGR WHERE Left(ACNO,3)='" + $code + "' AND DCHK='Y'")
             $bln = if (-not $rs2.EOF -and $rs2.Fields("BLN").Value) { [double]$rs2.Fields("BLN").Value } else { 0 }
             $rs2.Close()
 
@@ -150,9 +149,7 @@ try {
         while (-not $rs.EOF) {
             $code = [string]$rs.Fields("科目代號").Value
             $name = [string]$rs.Fields("科目名稱").Value
-            # 收入貸方為正，費用借方為正
-            $dir = if ($code -ge '326' -and $code -lt '5') { 'IIf(DC=''C'',1,-1)' } else { 'IIf(DC=''C'',-1,1)' }
-            $rs2 = $db.OpenRecordset("SELECT Sum($dir*MNY) AS BLN FROM LGR WHERE Left(ACNO,Len('$code'))='$code' AND DCHK='Y'")
+            $rs2 = $db.OpenRecordset("SELECT Sum(IIf(DC='C',1,-1)*MNY) AS BLN FROM LGR WHERE Left(ACNO,Len('$code'))='$code' AND DCHK='Y'")
             $bln = if (-not $rs2.EOF -and $rs2.Fields("BLN").Value) { [double]$rs2.Fields("BLN").Value } else { 0 }
             $rs2.Close()
 
@@ -179,7 +176,6 @@ catch {
     Write-Host "  錯誤: $_" -ForegroundColor Red
 }
 finally {
-    if ($db) { try { $db.Close() } catch {} }
     if ($dbe) { [Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) | Out-Null }
 }
 

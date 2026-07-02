@@ -42,14 +42,14 @@ if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
         Write-Host "  偵測到 32-bit 需求，自動切換..." -ForegroundColor Yellow
         $env:DAO_RESTARTED = '1'
         $argList = @()
-        if ($MergeSource) { $argList += '-MergeSource', $MergeSource }
-        if ($MergeTarget) { $argList += '-MergeTarget', $MergeTarget }
+        if ($MergeSource) { $argList += '-MergeSource', "`"$MergeSource`"" }
+        if ($MergeTarget) { $argList += '-MergeTarget', "`"$MergeTarget`"" }
         if ($SubstantiveReview) { $argList += '-SubstantiveReview' }
         if ($ApplicationReview) { $argList += '-ApplicationReview' }
         if ($CompareList) { $argList += '-CompareList' }
         if ($CubPassword -ne '') { $argList += '-CubPassword', $CubPassword }
         if ($SourcePassword -ne '') { $argList += '-SourcePassword', $SourcePassword }
-        & $ps32 -ExecutionPolicy Bypass -File $PSCommandPath @argList
+        & $ps32 -ExecutionPolicy Bypass -File "`"$PSCommandPath`"" @argList
         exit $LASTEXITCODE
     }
 }
@@ -133,12 +133,12 @@ try {
                 try {
                     $db.Execute(@"
 UPDATE M_Loan_All INNER JOIN TM ON (M_Loan_All.帳號 = TM.帳號) AND (M_Loan_All.戶號 = TM.戶號)
-SET M_Loan_All.審查意見 = IIf(TM.審查意見 Is Null Or TM.審查意見='', M_Loan_All.審查意見, TM.審查意見),
-    M_Loan_All.簽章 = IIf(TM.簽章 Is Null Or TM.簽章='', M_Loan_All.簽章, TM.簽章),
-    M_Loan_All.備註 = IIf(TM.備註 Is Null Or TM.備註='', M_Loan_All.備註, TM.備註),
-    M_Loan_All.擔保品總額 = IIf(TM.擔保品總額 Is Null, M_Loan_All.擔保品總額, TM.擔保品總額),
-    M_Loan_All.ToBeShowed = IIf(TM.ToBeShowed Is Null, M_Loan_All.ToBeShowed, TM.ToBeShowed),
-    M_Loan_All.Repeat = IIf(TM.Repeat Is Null, M_Loan_All.Repeat, TM.Repeat)
+SET M_Loan_All.審查意見 = TM.審查意見,
+    M_Loan_All.簽章 = TM.簽章,
+    M_Loan_All.備註 = TM.備註,
+    M_Loan_All.擔保品總額 = TM.擔保品總額,
+    M_Loan_All.ToBeShowed = TM.ToBeShowed,
+    M_Loan_All.Repeat = TM.Repeat
 WHERE (TM.審查意見 <> '' OR TM.簽章 <> '' OR TM.備註 <> '' OR TM.擔保品總額 > 0)
 "@)
                     Write-Host "  實質審核資料合併完成" -ForegroundColor Green
@@ -224,7 +224,6 @@ catch {
     Write-Host "  錯誤: $_" -ForegroundColor Red
 }
 finally {
-    if ($db) { try { $db.Close() } catch {} }
     if ($dbe) { [Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) | Out-Null }
 }
 
