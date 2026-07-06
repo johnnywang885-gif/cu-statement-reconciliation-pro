@@ -37,6 +37,12 @@ if (Test-Path $batSrc) {
     Copy-Item $batSrc -Destination $tempDir
 }
 
+# 複製安裝環境.bat
+$batSrc2 = Join-Path $sourceDir "安裝環境.bat"
+if (Test-Path $batSrc2) {
+    Copy-Item $batSrc2 -Destination $tempDir
+}
+
 # 複製使用說明.txt
 $readmeSrc = Join-Path $sourceDir "使用說明.txt"
 if (Test-Path $readmeSrc) {

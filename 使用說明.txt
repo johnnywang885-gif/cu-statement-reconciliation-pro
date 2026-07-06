@@ -1,38 +1,57 @@
-==================================================
+﻿==================================================
               對帳單工具 v1 使用說明
 ==================================================
 
-感謝使用本對帳單工具。請按照以下步驟進行安裝與使用：
+━━ 第一次使用：只要做這 3 步（約 5 分鐘）━━
 
-【步驟一：安裝必要軟體】
-1. 安裝 PowerShell 7+ (pwsh)
-   - 官方下載點：https://github.com/PowerShell/PowerShell/releases
-   - 請下載適合您系統的安裝檔（例如：PowerShell-7.x.x-win-x64.msi 或 x86.msi）並進行安裝。
-   - 原因：本工具的進階異常偵測指令碼需要 PowerShell 7+ 才能正常運作。
+步驟 1️⃣：安裝環境
+  雙擊「安裝環境.bat」→ 會自動安裝兩個必要軟體
+  ・PowerShell 7（跑腳本需要）
+  ・Access Database Engine 2016 32-bit（讀取資料庫需要）
+  ⚠ 安裝時會跳出「使用者帳戶控制」，請按「是」
 
-2. 安裝 Microsoft Access Database Engine 2016 (32-bit)
-   - 官方下載點：https://www.microsoft.com/en-us/download/details.aspx?id=54920
-   - 注意：必須下載 32 位元版本（檔名通常為 AccessDatabaseEngine.exe，非 64 位元的 AccessDatabaseEngine_X64.exe）。
-   - 原因：本工具透過 DAO.DBEngine.120 元件讀取 CUB.MDB，此元件需要 32 位元的 Access Database Engine 驅動程式。
+步驟 2️⃣：放入資料庫
+  把你的「CUB.MDB」複製到這個資料夾
+  （跟「對帳單.bat」放在同一個目錄）
 
-【步驟二：準備資料庫檔案】
-1. 將您的信用部資料庫檔案「CUB.MDB」放入此資料夾中（與「對帳單.bat」同一個目錄）。
-   - 注意：檔名必須完全符合「CUB.MDB」（大寫或小寫皆可，但不可有其他多餘字元）。
+步驟 3️⃣：開始使用
+  雙擊「對帳單.bat」→ 選單出現就完成了！
+  ✅ 選項 1：執行異常偵測
+  ✅ 選項 2：依百分比篩選
+  ✅ 選項 3：重選 CUB.MDB
+  ✅ 選項 4：結束
 
-【步驟三：執行對帳單工具】
-1. 按兩下執行「對帳單.bat」。
-   - 如果系統提示安全性警告，請選擇「仍要執行」。
-2. 執行時會顯示選單，請依照畫面指示選擇要執行的功能：
-    - [1] 執行異常偵測（產出 CSV + 寫入 M_對帳明細）
-    - [2] 依百分比篩選（產出 CSV）
-    - [8] 重選 CUB.MDB
-    - [9] 結束程式
-3. 程式執行時，會安全地提示您輸入 CUB 資料庫的密碼（請輸入正確的 CUB 密碼，輸入時不會顯示字元，請直接輸入後按 Enter 即可）。
+━━ 常見問題 FAQ ━━
 
-【檔案清單說明】
-- 對帳單.bat          : 批次檔入口，按兩下即可啟動選單。
-- 使用說明.txt        : 本說明檔。
-- lib\AnomalyScore.psm1 : 異常分數權重與計算邏輯模組。
-- *.ps1               : 異常偵測、餘額檢查、資料匯入等 PowerShell 腳本。
+Q1：出現「Windows 已保護您的電腦」？
+A：這是 Windows SmartScreen 的保護機制。
+   請點「其他資訊」→「仍要執行」即可。
+
+Q2：出現「找不到 PowerShell 7」？
+A：重跑「安裝環境.bat」，或手動至 GitHub 下載：
+   https://github.com/PowerShell/PowerShell/releases
+
+Q3：出現「偵測不到 Access Database Engine」？
+A：重跑「安裝環境.bat」，或手動下載 32-bit 版本：
+   https://www.microsoft.com/en-us/download/details.aspx?id=54920
+   注意：必須是 32 位元（AccessDatabaseEngine.exe，不是 _X64）
+
+Q4：密碼錯誤怎麼辦？
+A：預設密碼是 thifincub。若你的 CUB.MDB 密碼不同，
+   在選單中選「5. 輸入密碼」來設定。
+
+Q5：產出的 CSV 在哪裡？
+A：在工具資料夾內，檔名為「CUB_異常社員_對帳單排序_日期.csv」，
+   可以直接用 Excel 開啟。
+
+Q6：可以放在桌面嗎？
+A：可以，但路徑不要有全形空格或特殊符號。
+
+━━ 檔案清單說明 ━━
+安裝環境.bat             : 雙擊即可自動安裝所需軟體（第一次使用先點這個）
+對帳單.bat               : 工具入口，雙擊啟動選單
+使用說明.txt             : 本說明檔
+lib\AnomalyScore.psm1    : 異常分數權重與計算邏輯模組
+*.ps1                    : 異常偵測、餘額檢查、資料匯入等腳本
 
 如有任何使用問題，請聯絡系統開發人員。
