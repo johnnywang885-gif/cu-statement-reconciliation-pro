@@ -18,24 +18,6 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-REM 檢查 Access Database Engine 32-bit (DAO.DBEngine.120)
-pwsh -NoProfile -Command "try { $null = New-Object -ComObject DAO.DBEngine.120; exit 0 } catch { exit 1 }"
-if %errorlevel% neq 0 (
-    echo ================================================
-    echo    錯誤：偵測不到 Access Database Engine 32-bit
-    echo ================================================
-    echo.
-    echo 這個工具需要 Access Database Engine 2016 (32-bit)。
-    echo 請至微軟官網下載並安裝：
-    echo https://www.microsoft.com/en-us/download/details.aspx?id=54920
-    echo.
-    echo 注意：必須下載 32 位元版本（AccessDatabaseEngine.exe，非 _X64）
-    echo.
-    echo 或執行資料夾中的「安裝環境.bat」來自動安裝。
-    echo.
-    pause
-    exit /b
-)
 
 set "SELECTED_CUB="
 set "DEFAULT_PWD=thifincub"
