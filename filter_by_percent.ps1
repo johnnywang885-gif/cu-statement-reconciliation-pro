@@ -1,4 +1,4 @@
-# filter_by_percent.ps1 — 依比例篩選 CSV（簡化版）
+﻿# filter_by_percent.ps1 — 依比例篩選 CSV（簡化版）
 # 用法: .\filter_by_percent.ps1 -Percent 30
 
 param([int]$Percent = 0)

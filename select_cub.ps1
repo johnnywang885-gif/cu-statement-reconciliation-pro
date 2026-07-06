@@ -1,4 +1,4 @@
-# select_cub.ps1 — 彈出圖形化視窗選擇 CUB.MDB
+﻿# select_cub.ps1 — 彈出圖形化視窗選擇 CUB.MDB
 Add-Type -AssemblyName System.Windows.Forms
 $f = New-Object System.Windows.Forms.OpenFileDialog
 $f.Title = '請選擇 CUB.MDB'

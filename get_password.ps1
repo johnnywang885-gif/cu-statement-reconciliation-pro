@@ -1,4 +1,4 @@
-# get_password.ps1 — 彈出圖形化視窗輸入 CUB.MDB 密碼
+﻿# get_password.ps1 — 彈出圖形化視窗輸入 CUB.MDB 密碼
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 

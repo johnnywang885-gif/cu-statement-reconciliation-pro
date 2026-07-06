@@ -1,4 +1,4 @@
-# pack.ps1
+﻿# pack.ps1
 # 設定主機輸出編碼為 UTF-8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -43,12 +43,39 @@ if (Test-Path $readmeSrc) {
     Copy-Item $readmeSrc -Destination $tempDir
 }
 
-# 複製所有 .ps1，排除 pack.ps1 自身及開發用診斷腳本
-$excludeList = @("pack.ps1", "check_lgr.ps1", "check_lgr2.ps1", "inspect_cub_schema.ps1")
+# 複製 README.md（若存在）
+$readmeMd = Join-Path $sourceDir "README.md"
+if (Test-Path $readmeMd) {
+    Copy-Item $readmeMd -Destination $tempDir
+}
+
+# 複製 LICENSE（若存在）
+$licenseSrc = Join-Path $sourceDir "LICENSE"
+if (Test-Path $licenseSrc) {
+    Copy-Item $licenseSrc -Destination $tempDir
+}
+
+# 複製所有 .ps1，排除 pack.ps1 自身、開發用診斷腳本及 AGENTS.md
+$excludeList = @(
+    "pack.ps1",
+    "check_lgr.ps1",
+    "check_lgr2.ps1",
+    "inspect_cub_schema.ps1"
+)
 Get-ChildItem -Path $sourceDir -Filter "*.ps1" | ForEach-Object {
     if ($_.Name -notin $excludeList) {
         Copy-Item $_.FullName -Destination $tempDir
     }
+}
+
+# 清除暫存區中不該發布的檔案（AGENTS.md、CSV、.gitignore 等）
+$removePatterns = @("AGENTS.md", "*.csv", ".gitignore", ".gitattributes")
+foreach ($pattern in $removePatterns) {
+    Get-ChildItem -Path $tempDir -Filter $pattern -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+}
+# 若意外複製到 .git 目錄則一併刪除
+if (Test-Path (Join-Path $tempDir ".git")) {
+    Remove-Item (Join-Path $tempDir ".git") -Recurse -Force
 }
 
 # 壓縮暫存資料夾內容

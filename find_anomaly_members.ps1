@@ -1,4 +1,4 @@
-# find_anomaly_members.ps1 — 異常社員偵測引擎，排序輸出，建議優先追查社員
+﻿# find_anomaly_members.ps1 — 異常社員偵測引擎，排序輸出，建議優先追查社員
 # 用法:
 #   .\find_anomaly_members.ps1                      (自動偵測尋找 CUB.MDB)
 #   .\find_anomaly_members.ps1 -CubPath D:\CUB.MDB  (指定路徑)
@@ -98,7 +98,7 @@ try {
     $dbe = New-Object -ComObject DAO.DBEngine.120
 
     # ── Step 1: 讀取查核期間 ───────────────────────────────────────────────────────────
-    Write-Host "[1/8] 讀取查核期間..." -ForegroundColor Yellow
+    Write-Host "[1/7] 讀取查核期間..." -ForegroundColor Yellow
     try {
         $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     }
@@ -142,7 +142,7 @@ try {
     Write-Host "  系統設定滯納天數上限: $滯納天數上限" -ForegroundColor DarkGray
 
     # ── Step 2: 讀取社員主檔 SER ────────────────────────────────────────────────────────
-    Write-Host "[2/8] 讀取社員主檔..." -ForegroundColor Yellow
+    Write-Host "[2/7] 讀取社員主檔..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, ACCNM, NAM, PRESTK, SSAV, NOSTK, PREBO, BORO, LNMNY, PREFO, FO, NOFO, ADDR, TEL, BIRTH, SEX, GRPNO, INDAT, TYPE FROM SER WHERE (OUTDAT IS NULL OR OUTDAT='') ORDER BY ACCNO")
     $memberMap = @{}
@@ -194,7 +194,7 @@ try {
     Write-Host "  共 $memberCount 位會員" -ForegroundColor DarkGray
 
     # ── Step 3: 從 LGR 計算各項餘額 ─────────────────────────────────────────────────────
-    Write-Host "[3/8] 從 LGR 計算各項餘額..." -ForegroundColor Yellow
+    Write-Host "[3/7] 從 LGR 計算各項餘額..." -ForegroundColor Yellow
 
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, Sum(IIf(DC='C',1,-1)*MNY) AS BLN FROM LGR WHERE (Left(ACNO,3)='310' OR ACNO='216') AND DCHK='Y' GROUP BY ACCNO")
@@ -229,7 +229,7 @@ try {
     }
 
     # ── Step 4: 逾期貸款 + 貸款筆數 ───────────────────────────────────────────────────
-    Write-Host "[4/8] 檢查逾期貸款及貸款筆數..." -ForegroundColor Yellow
+    Write-Host "[4/7] 檢查逾期貸款及貸款筆數..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, Count(*) AS BadCnt, Sum(IIf(IsNull(OWEBR),0,OWEBR)) AS TotOWEBR, Sum(IIf(IsNull(OWEINT),0,OWEINT)) AS TotOWEINT FROM BOROW WHERE IIf(IsNull(OWEBR),0,OWEBR) > 0 OR IIf(IsNull(OWEINT),0,OWEINT) > 0 GROUP BY ACCNO")
     while (-not $rs.EOF) {
@@ -255,7 +255,7 @@ try {
     Write-Host "  完成" -ForegroundColor DarkGray
 
     # ── Step 5: 近期交易 ─────────────────────────────────────────────────────────
-    Write-Host "[5/8] 檢查近期交易..." -ForegroundColor Yellow
+    Write-Host "[5/7] 檢查近期交易..." -ForegroundColor Yellow
     $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
     $rs = $db.OpenRecordset("SELECT ACCNO, Count(*) AS TxnCnt FROM LGR WHERE DAT >= '$bDate' AND DAT <= '$eDate' AND DCHK='Y' GROUP BY ACCNO")
     while (-not $rs.EOF) {
@@ -268,7 +268,7 @@ try {
     Write-Host "  完成" -ForegroundColor DarkGray
 
     # ── Step 6: 其他異常檢查 ───────────────────────────────────────────────────
-    Write-Host "[6/8] 其他異常檢查..." -ForegroundColor Yellow
+    Write-Host "[6/7] 其他異常檢查..." -ForegroundColor Yellow
 
     function Convert-ROCDate($s) {
         if (-not $s) { return $null }
@@ -429,7 +429,7 @@ try {
                     Write-Host "  ⚠ 日期解析失敗: ACCNO=$a, DAT=$datVal, COUNCILDAT=$councilVal" -ForegroundColor Yellow
                     $rs.MoveNext(); continue
                 }
-                # 審查後超過 2 個月仍未撥款
+                # 審查後超過 60 天仍未撥款
                 if (($datDt - $councilDt).TotalDays -gt 60) {
                     $auditOverdue[$a] = $true
                 }
@@ -566,7 +566,7 @@ try {
     Write-Host "  其他異常檢查完成" -ForegroundColor DarkGray
 
     # ── Step 7: 計算異常分數 ─────────────────────────────────────────────────────────
-    Write-Host "[7/8] 計算異常分數..." -ForegroundColor Yellow
+    Write-Host "[7/7] 計算異常分數..." -ForegroundColor Yellow
 
     $results = @()
     foreach ($a in $memberMap.Keys) {
@@ -648,85 +648,11 @@ try {
 
     Write-Host "`n=== 開啟CSV 可搭配 Excel 開啟 ===" -ForegroundColor Green
 
-    # ── Step 8: 寫入 CUB.MDB 的 M_對帳明細 ──────────────────────────────────────────
-    Write-Host "`n[8/8] 寫入 CUB.MDB 的 M_對帳明細..." -ForegroundColor Yellow
-    try {
-        $dbCu = $dbe.OpenDatabase($CubPath, $false, $false, $connectStr)
-        $rsCu = $dbCu.OpenRecordset("SELECT SRNO FROM PARA")
-        $cuNo = $rsCu.Fields("SRNO").Value; $rsCu.Close()
-
-        $hasTable = @($dbCu.TableDefs | Where-Object { $_.Name -eq "M_對帳明細" }).Count -gt 0
-        if (-not $hasTable) {
-            Write-Host "  M_對帳明細 不存在，建立中..." -ForegroundColor DarkGray
-            $td = $dbCu.CreateTableDef("M_對帳明細")
-            $td.Fields.Append($td.CreateField("基準日", 10, 7))
-            $td.Fields.Append($td.CreateField("社號", 10, 6))
-            $td.Fields.Append($td.CreateField("帳號", 10, 6))
-            $td.Fields.Append($td.CreateField("姓名", 10, 10))
-            $td.Fields.Append($td.CreateField("寄發", 1))
-            $td.Fields.Append($td.CreateField("股金", 4))
-            $td.Fields.Append($td.CreateField("s_YN", 1))
-            $td.Fields.Append($td.CreateField("貸款", 4))
-            $td.Fields.Append($td.CreateField("l_YN", 1))
-            $td.Fields.Append($td.CreateField("備轉金", 4))
-            $td.Fields.Append($td.CreateField("ps_YN", 1))
-            $td.Fields.Append($td.CreateField("PS6", 4))
-            $td.Fields.Append($td.CreateField("6_YN", 1))
-            $td.Fields.Append($td.CreateField("Memo", 10, 50))
-            $td.Fields.Append($td.CreateField("電話", 10, 34))
-            $td.Fields.Append($td.CreateField("通訊處", 10, 60))
-            $td.Fields.Append($td.CreateField("不寄發", 1))
-            $td.Fields.Append($td.CreateField("不寄發原因", 10, 60))
-            $td.Fields.Append($td.CreateField("原因提供者", 10, 20))
-            $dbCu.TableDefs.Append($td)
-        }
-
-        $dbCu.BeginTrans()
-        try {
-            $dbCu.Execute("DELETE FROM [M_對帳明細] WHERE 基準日='$eDate' AND 社號='$cuNo'")
-
-            $written = 0
-            $rs = $dbCu.OpenRecordset("SELECT * FROM [M_對帳明細] WHERE False")
-            foreach ($r in $results) {
-                $rs.AddNew()
-                $rs.Fields("基準日").Value = [string]$eDate
-                $rs.Fields("社號").Value = [string]$cuNo
-                $rs.Fields("帳號").Value = [string]$r.AccNo
-                $rs.Fields("姓名").Value = if ($r.Name1) { [string]$r.Name1 } else { "" }
-                $rs.Fields("寄發").Value = $true
-                $rs.Fields("股金").Value = [double]$r.LGR_Share
-                $rs.Fields("貸款").Value = [double]$r.LGR_Loan
-                $rs.Fields("備轉金").Value = [double]$r.LGR_Reserve
-                $rs.Fields("PS6").Value = [double]0
-                $memo = if ($r.Flags_cn) { [string]$r.Flags_cn } else { "" }
-                if ($memo.Length -gt 50) { $memo = $memo.Substring(0, 47) + "..." }
-                $rs.Fields("Memo").Value = $memo
-                $tel = if ($r.TEL) { [string]$r.TEL } else { "" }
-                if ($tel.Length -gt 30) { $tel = $tel.Substring(0, 30) }
-                $rs.Fields("電話").Value = $tel
-                $rs.Update()
-                $written++
-            }
-            $rs.Close()
-            $dbCu.CommitTrans()
-            Write-Host "  已寫入 $written 筆至 CUB.MDB 的 M_對帳明細" -ForegroundColor Green
-            Write-Host "  開啟 Access → 對帳單作業 → 資料已自動載入。列印" -ForegroundColor Green
-        }
-        catch {
-            $dbCu.Rollback()
-            Write-Host "  寫入 CUB.MDB 的 M_對帳明細 失敗，已復原: $_" -ForegroundColor Red
-        }
-    }
-    catch {
-        Write-Host "  寫入 CUB.MDB 的 M_對帳明細 失敗: $_" -ForegroundColor Red
-    }
-
 }
 catch {
     Write-Host "`n錯誤: $_" -ForegroundColor Red
 }
 finally {
-    if ($dbCu) { try { $dbCu.Close() } catch {} }
     if ($dbe) { [Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) | Out-Null }
 }
 

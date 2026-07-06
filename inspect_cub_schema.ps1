@@ -1,4 +1,4 @@
-param([string]$CubPath = "CUB.MDB", [string]$CubPassword = "thifincub")
+﻿param([string]$CubPath = "CUB.MDB", [string]$CubPassword = "thifincub")
 
 try { $dbe = New-Object -ComObject DAO.DBEngine.120 } catch { Write-Error "需安裝 Access Database Engine 2016 (32-bit)"; exit 1 }
 
