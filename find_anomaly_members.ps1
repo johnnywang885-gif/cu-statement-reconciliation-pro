@@ -170,7 +170,6 @@ try {
             RecentTxn              = 0
             HasRelatedPartyLoan    = $false
             HasNewJoinLoan         = $false
-            HasRecDiscrepancy      = $false
             HasAuditOverdue        = $false
             HasExceedPayDate       = $false
             HasDirectorOverLimit   = $false
@@ -386,35 +385,6 @@ try {
     }
     catch { Write-Host "  7O 超過約定還款日期: 無法" -ForegroundColor DarkGray }
 
-    # 7M: 借據與審查紀錄不符（REC_前端 vs IOU_前端）
-    #     從 BOROW 檢查是否有 REC_前端/IOU_前端欄位
-    try {
-        $rs = $db.OpenRecordset("SELECT ACCNO FROM BOROW WHERE IIf(IsNull(REC_前端),'',REC_前端) <> IIf(IsNull(IOU_前端),'',IOU_前端) AND IIf(IsNull(ALLN),0,ALLN) > 0")
-        while (-not $rs.EOF) {
-            $a = $rs.Fields("ACCNO").Value
-            if ($memberMap.ContainsKey($a)) { $memberMap[$a].HasRecDiscrepancy = $true }
-            $rs.MoveNext()
-        }
-        $rs.Close()
-        Write-Host "  7M 借據與審查不符: 完成" -ForegroundColor DarkGray
-    }
-    catch {
-        # 若欄位不存在則略過
-        Write-Host "  7M 借據與審查不符: 略過（無此欄位）" -ForegroundColor DarkGray
-    }
-
-    # 7N: 審查後逾期未入帳（COUNCILDAT 後超過 60 天仍未撥款）
-    function Resolve-Date($s) {
-        if (-not $s) { return $null }
-        $m = [regex]::Match($s, '^(\d{3})/(\d{1,2})/(\d{1,2})$')
-        if ($m.Success) { return [datetime]::new([int]$m.Groups[1].Value + 1911, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value) }
-        $m = [regex]::Match($s, '^(\d{3})(\d{2})(\d{2})$')
-        if ($m.Success) { return [datetime]::new([int]$m.Groups[1].Value + 1911, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value) }
-        $dt = $null
-        [datetime]::TryParseExact($s, @("yyyy/MM/dd","yyyy/M/d","yyyyMMdd"), $null, 'None', [ref]$dt) | Out-Null
-        return $dt
-    }
-
     try {
         $rs = $db.OpenRecordset("SELECT ACCNO, DAT, COUNCILDAT FROM BOROW WHERE IIf(IsNull(COUNCILDAT),'',COUNCILDAT) <> '' AND IIf(IsNull(ALLN),0,ALLN) > 0")
         $auditOverdue = @{}
@@ -423,8 +393,8 @@ try {
             $datVal = [string]$rs.Fields("DAT").Value
             $councilVal = [string]$rs.Fields("COUNCILDAT").Value
             if ($datVal -and $councilVal) {
-                $datDt = Resolve-Date $datVal
-                $councilDt = Resolve-Date $councilVal
+                $datDt = Convert-ROCDate $datVal
+                $councilDt = Convert-ROCDate $councilVal
                 if (-not $datDt -or -not $councilDt) {
                     Write-Host "  ⚠ 日期解析失敗: ACCNO=$a, DAT=$datVal, COUNCILDAT=$councilVal" -ForegroundColor Yellow
                     $rs.MoveNext(); continue
@@ -600,7 +570,6 @@ try {
             SameAddrMul       = if ($m.HasSameAddressMultiple) { "Y" } else { "" }
             RelatedParty      = if ($m.HasRelatedPartyLoan) { "Y" } else { "" }
             NewJoinLoan       = if ($m.HasNewJoinLoan) { "Y" } else { "" }
-            RecDiscrepancy    = if ($m.HasRecDiscrepancy) { "Y" } else { "" }
             AuditOverdue      = if ($m.HasAuditOverdue) { "Y" } else { "" }
             ExceedPayDate     = if ($m.HasExceedPayDate) { "Y" } else { "" }
             DirectorOverLimit = if ($m.HasDirectorOverLimit) { "Y" } else { "" }

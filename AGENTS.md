@@ -39,7 +39,7 @@ pwsh -ExecutionPolicy Bypass -File find_anomaly_members.ps1 -CubPassword "<密�
 | **5** | 4 | 股金差額、貸款差額、備轉金差額、非社員貸款 (7E) |
 | **4** | 3 | 貸款結餘為負 (PREBO<0)、先放後審 (DAT<COUNCILDAT)、休眠戶激活 (7S) |
 | **3** | 3 | 關係人放款 (7G)、董監事超限 (7P)、新帳戶爆發 (7U) |
-| **2** | 7 | 同地址多戶 (7D)、新入社貸款 (7I)、借據不符 (7M)、審查未入帳 (7N)、重複交易 (7Q)、整數金額 (7T) |
+| **2** | 6 | 同地址多戶 (7D)、新入社貸款 (7I)、審查未入帳 (7N)、重複交易 (7Q)、整數金額 (7T) |
 | **1** | 1 | 超過約定還款日期 (7O) |
 
 分級：Score≥10→High, 5-9→Mid, 1-4→Low。
@@ -54,7 +54,7 @@ pwsh -ExecutionPolicy Bypass -File find_anomaly_members.ps1 -CubPassword "<密�
 | OUTDAT 過濾 | 在社社員用 `(OUTDAT IS NULL OR OUTDAT='')` 判定，非 `TYPE='1'` |
 | 權重表 | `lib/AnomalyScore.psm1` 的 `$script:AnomalyWeights`，新增旗標須同時更新此處和 `Get-AnomalyScore` |
 | CSV 編碼 | `Export-Csv` 須用 **`-Encoding utf8BOM`**（Excel 需要 BOM 才能正確辨識 UTF-8） |
-| SQL 日期 | 中華民國曆 (yyy/MM/dd)，須加 1911 轉西元；`find_anomaly_members.ps1` 有 `Convert-ROCDate` 與 `Resolve-Date` 兩種輔助函式 |
+| SQL 日期 | 中華民國曆 (yyy/MM/dd)，須加 1911 轉西元；`find_anomaly_members.ps1` 有 `Convert-ROCDate` 輔助函式 |
 | `Compress-Archive` | `pack.ps1` 切換到暫存目錄再壓縮，避免路徑問題 |
 | 32-bit 重啟引號 | 勿用嵌入引號包 `$PSCommandPath`，pwsh 7.3+ 會原樣傳遞；直接用變數即可 |
 | PS1 編碼 | 含中文的 .ps1 必須存成「UTF-8 with BOM」(EF BB BF)。無 BOM 時，32-bit 重啟會落到 PS 5.1，預設以 CP950 讀檔造成中文亂碼與剖析失敗。.bat 除外（必須 CP950） |

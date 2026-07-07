@@ -8,7 +8,6 @@ $script:AnomalyWeights = [ordered]@{
     SameAddrMul          = 2
     RelatedParty         = 3
     NewJoinLoan          = 2
-    RecDiscrepancy       = 2
     AuditOverdue         = 2
     ExceedPayDate        = 1
     DirectorOverLimit    = 3
@@ -81,10 +80,6 @@ function Get-AnomalyScore {
     if ([bool](Get-MemberValue $Member 'HasNewJoinLoan' $false)) {
         $score += $script:AnomalyWeights.NewJoinLoan
         $flags.Add('新入社立即貸款') | Out-Null
-    }
-    if ([bool](Get-MemberValue $Member 'HasRecDiscrepancy' $false)) {
-        $score += $script:AnomalyWeights.RecDiscrepancy
-        $flags.Add('借據與審查紀錄不符') | Out-Null
     }
     if ([bool](Get-MemberValue $Member 'HasAuditOverdue' $false)) {
         $score += $script:AnomalyWeights.AuditOverdue
