@@ -31,7 +31,7 @@ if ($env:GS_CoopName)     { Remove-Item Env:GS_CoopName -ErrorAction SilentlyCon
 if ($env:GS_ReportDate)   { Remove-Item Env:GS_ReportDate -ErrorAction SilentlyContinue }
 if ($env:GS_IndividualPdf) { Remove-Item Env:GS_IndividualPdf -ErrorAction SilentlyContinue }
 
-Set-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
+Set-Location (Split-Path -Parent $PSCommandPath)
 
 # ── 尋找 CSV ──────────────────────────────────────────────────────
 if ([string]::IsNullOrEmpty($CsvPath)) {
@@ -97,59 +97,53 @@ if ($daoAvailable -and (Test-Path $CubPath)) {
         $connectStr = if ($CubPassword) { ";PWD=$CubPassword" } else { "" }
         $dbe = New-Object -ComObject DAO.DBEngine.120
         $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
+
+        # 讀取 k_para（日期）
         $rs = $db.OpenRecordset("SELECT Item, Para FROM k_para")
         $kPara = @{}
         while (-not $rs.EOF) {
             $kPara[$rs.Fields["Item"].Value] = $rs.Fields["Para"].Value
             $rs.MoveNext()
         }
-        $rs.Close(); $db.Close()
+        $rs.Close()
 
         # 日期（eDate）— 格式化為民國年/月/日
         if ($ReportDate -eq "" -and $kPara.ContainsKey("eDate") -and $kPara["eDate"]) {
             $rawDate = $kPara["eDate"]
-            # 處理 "1150615" → "115/06/15"、"115/6/15" → "115/06/15"、已是正確格式則保留
             if ($rawDate -match '^\d{7}$') {
-                # 7位數如 1150615 → 115/06/15
                 $y = $rawDate.Substring(0,3)
                 $m = $rawDate.Substring(3,2)
                 $d = $rawDate.Substring(5,2)
-                $ReportDate = "$y/$m/$d"
+                $month = [int]$m; $day = [int]$d
+                if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) {
+                    $ReportDate = "$y/$m/$d"
+                }
             } elseif ($rawDate -match '^\d{8}$') {
-                # 8位數如 20260615 → 115/06/15 (需轉換西元→民國)
                 $y = [int]$rawDate.Substring(0,4) - 1911
                 $m = $rawDate.Substring(4,2)
                 $d = $rawDate.Substring(6,2)
-                $ReportDate = "$y/$m/$d"
+                $month = [int]$m; $day = [int]$d
+                if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) {
+                    $ReportDate = "$y/$m/$d"
+                }
             } else {
                 $ReportDate = $rawDate
             }
         }
 
-        # 合作社名（嘗試多個可能的 key）
-        foreach ($key in @("CoopName", "SOCNAME", "SocName", "coopname")) {
-            if ($kPara.ContainsKey($key) -and $kPara[$key]) {
-                $coopName = $kPara[$key]
-                break
+        # 合作社名：從 SER 取 ACCNO='000000' 的 ACCNM
+        if ([string]::IsNullOrEmpty($coopName)) {
+            $rsName = $db.OpenRecordset("SELECT ACCNM FROM SER WHERE ACCNO='000000'")
+            if (-not $rsName.EOF) {
+                $val = $rsName.Fields["ACCNM"].Value
+                if ($val) { $coopName = [string]$val }
             }
+            $rsName.Close()
         }
 
-        # 若 k_para 沒有，嘗試 PARA 表
-        if ([string]::IsNullOrEmpty($coopName)) {
-            try {
-                $db2 = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
-                $rs2 = $db2.OpenRecordset("SELECT * FROM PARA")
-                if (-not $rs2.EOF) {
-                    foreach ($fld in $rs2.Fields) {
-                        if ($fld.Name -match "NAME|NAME2|SOCNAME|COOP" -and $fld.Value) {
-                            $coopName = $fld.Value
-                            break
-                        }
-                    }
-                }
-                $rs2.Close(); $db2.Close()
-            } catch {}
-        }
+        $db.Close()
+        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dbe)
+        $dbe = $null
     } catch {
         Write-Host "  讀取 CUB.MDB 時發生錯誤: $($_.Exception.Message)" -ForegroundColor Yellow
     }
@@ -181,7 +175,6 @@ function Set-CellText {
 
 function Write-FoldLine {
     param($Sel)
-    # 新增一個段落，用底部邊框作為摺線
     $Sel.TypeParagraph()
     $pRange = $Sel.Paragraphs.Last.Range
     $pRange.Borders.Item(3).LineStyle = 1   # wdBorderBottom = 3, wdBorderSingle = 1
@@ -191,22 +184,20 @@ function Write-FoldLine {
 
 function Write-BlankArea {
     param($Sel, $Doc)
-    # 用空白段落 + 固定行距模擬上方1/3空白（~22行 x 16pt ≈ 352pt ≈ A4 1/3）
-    for ($i = 0; $i -lt 22; $i++) { $Sel.TypeParagraph() }
+    # A4 可用高度 ≈ 842pt - 40pt(上) - 30pt(下) = 772pt
+    # 上方 1/3 ≈ 257pt，行距 16pt → 需 16 行
+    for ($i = 0; $i -lt 16; $i++) { $Sel.TypeParagraph() }
 }
 
 function Write-AddressBlock {
     param($Sel, [string]$PostalCode, [string]$Address, [string]$Name)
-    # 第一行：郵遞區號 + 地址（置中）
     $addrLine = if ($PostalCode) { "$PostalCode  $Address" } else { $Address }
     $Sel.TypeText($addrLine)
-    $Sel.Range.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
+    $Sel.Paragraphs.Last.Range.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
     $Sel.TypeParagraph()
-    # 第二行：姓名 + 君 啟（置中）
     $Sel.TypeText("$Name 君  啟")
-    $Sel.Range.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
+    $Sel.Paragraphs.Last.Range.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
     $Sel.TypeParagraph()
-    # 重設為靠左
     $Sel.Range.ParagraphFormat.Alignment = 0  # wdAlignParagraphLeft
     $Sel.TypeParagraph()
     $Sel.TypeParagraph()
@@ -221,11 +212,11 @@ function Write-LetterBody {
 }
 
 function Write-StatementTable {
-    param($Doc, $Sel, [long]$Share, [long]$Loan, [long]$reserve)
+    param($Doc, $Sel, [long]$Share, [long]$Loan, [long]$Reserve)
     $tableData = @(
-        @("股　金",    $share,   "□正確　□錯誤：實有金額　　　　　"),
-        @("貸　款",    $loan,    "□正確　□錯誤：實有金額　　　　　"),
-        @("備　轉　金", $reserve, "□正確　□錯誤：實有金額　　　　　"),
+        @("股　金",    $Share,   "□正確　□錯誤：實有金額　　　　　"),
+        @("貸　款",    $Loan,    "□正確　□錯誤：實有金額　　　　　"),
+        @("備　轉　金", $Reserve, "□正確　□錯誤：實有金額　　　　　"),
         @("備　註",    "",       "")
     )
 
@@ -237,7 +228,7 @@ function Write-StatementTable {
     $tbl.Borders.InsideLineStyle   = 1
     $tbl.Columns(1).Width = 110
     $tbl.Columns(2).Width = 90
-    $tbl.Columns(3).Width = 268
+    $tbl.Columns(3).Width = 305
 
     # 表頭
     Set-CellText $tbl 1 1 "帳目"                   -Bold 1 -Align 1
@@ -274,9 +265,18 @@ function Write-AssociationInfo {
     $Sel.TypeParagraph()
 }
 
+function Sanitize-Filename {
+    param([string]$Name)
+    $invalid = [IO.Path]::GetInvalidFileNameChars()
+    $result = $Name
+    foreach ($c in $invalid) { $result = $result.Replace([string]$c, '_') }
+    return $result
+}
+
 # ── 產生 Word → PDF ──────────────────────────────────────────────
 $word = $null
 $doc = $null
+$scriptSuccess = $false
 
 try {
     $word = New-Object -ComObject Word.Application
@@ -341,9 +341,9 @@ try {
         # ── 表格 ──────────────────────────────────────────────────
         $share   = if ($row.LGR_Share)   { [long]$row.LGR_Share   } else { 0 }
         $loan    = if ($row.LGR_Loan)    { [long]$row.LGR_Loan    } else { 0 }
-        $reserve = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
+        $Reserve = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
 
-        Write-StatementTable $doc $sel $share $loan $reserve
+        Write-StatementTable $doc $sel $share $loan $Reserve
 
         # ── 頁尾 ──────────────────────────────────────────────────
         $accNo = if ($row.AccNo) { $row.AccNo } else { "" }
@@ -359,7 +359,7 @@ try {
     $docxPath = Join-Path $outDir "對帳單_合併.docx"
     $pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
 
-    $doc.SaveAs2($docxPath)
+    $doc.SaveAs2($docxPath, 16)  # wdFormatDocumentDefault = 16
     Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
 
     # 另存 PDF（wdExportFormatPDF = 17）
@@ -385,22 +385,11 @@ try {
             if ($addrRaw2 -match '^(\d{3,5})(.+)') { $postalCode2 = $Matches[1]; $address2 = $Matches[2].Trim() }
             $name2 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
 
-            # 空白区域（上方 1/3）
             Write-BlankArea $singleSel $singleDoc
-
-            # 第一條摺線
             Write-FoldLine $singleSel
-
-            # 協會資訊
             Write-AssociationInfo $singleSel
-
-            # 收件人地址（置中）
             Write-AddressBlock $singleSel $postalCode2 $address2 $name2
-
-            # 第二條摺線
             Write-FoldLine $singleSel
-
-            # 信文
             Write-LetterBody $singleSel $coopName $reportDate
 
             $s2 = if ($row.LGR_Share)   { [long]$row.LGR_Share   } else { 0 }
@@ -413,16 +402,24 @@ try {
             $singleSel.TypeText("           $($row.AccNo)                                                      (簽名或蓋章)")
 
             $acc = if ($row.AccNo) { $row.AccNo } else { "000000" }
-            $singlePdf = Join-Path $outDir "SN${sn}_${acc}_${name2}.pdf"
+            $safeName = Sanitize-Filename $name2
+            $singlePdf = Join-Path $outDir "SN${sn}_${acc}_${safeName}.pdf"
             $singleDoc.SaveAs2($singlePdf, 17)
             $singleDoc.Close(0)
             [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($singleDoc)
+
+            # 每 20 筆釋放記憶體
+            if ($sn % 20 -eq 0) {
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+            }
         }
         Write-Host "  個別 PDF 已產出至 $outDir" -ForegroundColor Green
     }
 
     $doc.Close(0)
     $doc = $null
+    $scriptSuccess = $true
 
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
@@ -440,7 +437,8 @@ finally {
         try { $word.Quit() } catch {}
         [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word)
     }
+    if ($dbe) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) }
     [System.GC]::Collect()
     [System.GC]::WaitForPendingFinalizers()
-    Write-Host "Word 已關閉" -ForegroundColor DarkGray
+    if ($scriptSuccess) { Write-Host "Word 已關閉" -ForegroundColor DarkGray }
 }
