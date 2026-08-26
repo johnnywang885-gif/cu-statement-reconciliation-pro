@@ -66,7 +66,7 @@ pwsh -ExecutionPolicy Bypass -File find_anomaly_members.ps1 -CubPassword "<密�
 
 - `M_對帳明細` — 由 Access 前端建立；`find_anomaly_members.ps1` 唯讀，`manage_nonmail.ps1` 寫入 `不寄發` 欄位
 - `BOROW` — 放款主檔，含 `OWEBR`(結餘)、`DAT`(撥款日)、`COUNCILDAT`(審核日)、`BRNO`(擔保品號)、`DLY`(滯納天數)、`ALLN`(放款餘額)、**`SEPNO`(字母O)**
-- `SER` — 社員主檔，`OUTDAT`(退社日)、`GRPNO`(戶號)、`INDAT`(入社日)、`PREBO`(上期貸款結餘)、`TYPE`('1'=董監事)
+- `SER` — 社員主檔，`OUTDAT`(退社日)、`GRPNO`(戶號)、`INDAT`(入社日)、`PREBO`(上期貸款結餘)、`TYPE`('1'=董監事)。**合作社名從 `ACCNO='000000'` 取 `ACCNM`**
 - `LGR` — 總帳，含 `DAT` `ACCNO` `MNY` `DC` `USR`，**無 TIME/CONTRA 欄位**
 - `k_para` — 系統參數，含 `bDate`、`eDate`（查核起訖）、`OverdueDays`（滯納天數上限）
 - `st_科目別` — 科目分類表（`balance_check.ps1` 使用，非標準 CUB.MDB 表，需先建立）
