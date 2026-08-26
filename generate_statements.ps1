@@ -16,21 +16,6 @@ param(
     [switch]$IndividualPdf
 )
 
-# 32-bit 重啟時從環境變數讀取參數
-if ($env:GS_CsvPath)      { $CsvPath = $env:GS_CsvPath }
-if ($env:GS_CubPath)      { $CubPath = $env:GS_CubPath }
-if ($env:GS_CubPassword)  { $CubPassword = $env:GS_CubPassword }
-if ($env:GS_CoopName)     { $CoopName = $env:GS_CoopName }
-if ($env:GS_ReportDate)   { $ReportDate = $env:GS_ReportDate }
-if ($env:GS_IndividualPdf) { $IndividualPdf = $true }
-# 清除環境變數避免殘留
-if ($env:GS_CsvPath)      { Remove-Item Env:GS_CsvPath -ErrorAction SilentlyContinue }
-if ($env:GS_CubPath)      { Remove-Item Env:GS_CubPath -ErrorAction SilentlyContinue }
-if ($env:GS_CubPassword)  { Remove-Item Env:GS_CubPassword -ErrorAction SilentlyContinue }
-if ($env:GS_CoopName)     { Remove-Item Env:GS_CoopName -ErrorAction SilentlyContinue }
-if ($env:GS_ReportDate)   { Remove-Item Env:GS_ReportDate -ErrorAction SilentlyContinue }
-if ($env:GS_IndividualPdf) { Remove-Item Env:GS_IndividualPdf -ErrorAction SilentlyContinue }
-
 Set-Location (Split-Path -Parent $PSCommandPath)
 
 # ── 尋找 CSV ──────────────────────────────────────────────────────
@@ -66,86 +51,75 @@ Write-Host "  共 $($validRows.Count) 筆社員" -ForegroundColor DarkGray
 $coopName = ""
 $reportDate = ""
 
-# DAO 32-bit 初始化
-$daoAvailable = $false
-try { $null = New-Object -ComObject DAO.DBEngine.120; $daoAvailable = $true } catch {}
-
-if (-not $daoAvailable -and -not $env:DAO_RESTARTED) {
-    $ps32 = "$env:SystemRoot\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
-    if (Test-Path $ps32) {
-        Write-Host "  偵測到 32-bit 需求，自動切換..." -ForegroundColor Yellow
-        $env:DAO_RESTARTED = '1'
-        # 用環境變數傳遞參數（避免 PS 5.1 splatting 問題）
-        if ($CsvPath) { $env:GS_CsvPath = $CsvPath }
-        if ($CubPath) { $env:GS_CubPath = $CubPath }
-        if ($CubPassword) { $env:GS_CubPassword = $CubPassword }
-        if ($CoopName) { $env:GS_CoopName = $CoopName }
-        if ($ReportDate) { $env:GS_ReportDate = $ReportDate }
-        if ($IndividualPdf) { $env:GS_IndividualPdf = '1' }
-        & $ps32 -ExecutionPolicy Bypass -File $PSCommandPath
-        exit $LASTEXITCODE
-    }
-}
-
 if ($CubPath -eq "") {
     $CubPath = Join-Path $PSScriptRoot "CUB.MDB"
 }
 $CubPath = [System.IO.Path]::GetFullPath($CubPath)
+
+# 嘗試在當前 pwsh 直接用 DAO（32-bit 環境）
+$daoAvailable = $false
+try { $null = New-Object -ComObject DAO.DBEngine.120; $daoAvailable = $true } catch {}
 
 if ($daoAvailable -and (Test-Path $CubPath)) {
     try {
         $connectStr = if ($CubPassword) { ";PWD=$CubPassword" } else { "" }
         $dbe = New-Object -ComObject DAO.DBEngine.120
         $db = $dbe.OpenDatabase($CubPath, $false, $true, $connectStr)
-
-        # 讀取 k_para（日期）
         $rs = $db.OpenRecordset("SELECT Item, Para FROM k_para")
         $kPara = @{}
-        while (-not $rs.EOF) {
-            $kPara[$rs.Fields["Item"].Value] = $rs.Fields["Para"].Value
-            $rs.MoveNext()
-        }
+        while (-not $rs.EOF) { $kPara[$rs.Fields["Item"].Value] = $rs.Fields["Para"].Value; $rs.MoveNext() }
         $rs.Close()
-
-        # 日期（eDate）— 格式化為民國年/月/日
-        if ($ReportDate -eq "" -and $kPara.ContainsKey("eDate") -and $kPara["eDate"]) {
-            $rawDate = $kPara["eDate"]
-            if ($rawDate -match '^\d{7}$') {
-                $y = $rawDate.Substring(0,3)
-                $m = $rawDate.Substring(3,2)
-                $d = $rawDate.Substring(5,2)
-                $month = [int]$m; $day = [int]$d
-                if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) {
-                    $ReportDate = "$y/$m/$d"
-                }
-            } elseif ($rawDate -match '^\d{8}$') {
-                $y = [int]$rawDate.Substring(0,4) - 1911
-                $m = $rawDate.Substring(4,2)
-                $d = $rawDate.Substring(6,2)
-                $month = [int]$m; $day = [int]$d
-                if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) {
-                    $ReportDate = "$y/$m/$d"
-                }
-            } else {
-                $ReportDate = $rawDate
-            }
-        }
-
-        # 合作社名：從 SER 取 ACCNO='000000' 的 ACCNM
-        if ([string]::IsNullOrEmpty($coopName)) {
-            $rsName = $db.OpenRecordset("SELECT ACCNM FROM SER WHERE ACCNO='000000'")
-            if (-not $rsName.EOF) {
-                $val = $rsName.Fields["ACCNM"].Value
-                if ($val) { $coopName = [string]$val }
-            }
-            $rsName.Close()
-        }
-
+        if ($kPara.ContainsKey("eDate") -and $kPara["eDate"]) { $reportDate = [string]$kPara["eDate"] }
+        $rsName = $db.OpenRecordset("SELECT ACCNM FROM SER WHERE ACCNO='000000'")
+        if (-not $rsName.EOF) { $val = $rsName.Fields["ACCNM"].Value; if ($val) { $coopName = [string]$val } }
+        $rsName.Close()
         $db.Close()
         [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dbe)
         $dbe = $null
     } catch {
-        Write-Host "  讀取 CUB.MDB 時發生錯誤: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "  DAO 直接讀取失敗: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+# DAO 不可用時（64-bit pwsh），呼叫32-bit read_cub_info.ps1
+if ([string]::IsNullOrEmpty($coopName) -or [string]::IsNullOrEmpty($reportDate)) {
+    $ps32 = "$env:SystemRoot\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
+    $infoScript = Join-Path $PSScriptRoot "read_cub_info.ps1"
+    if ((Test-Path $ps32) -and (Test-Path $infoScript)) {
+        Write-Host "  透過32-bit 讀取 CUB.MDB..." -ForegroundColor DarkGray
+        $infoArgs = @('-ExecutionPolicy', 'Bypass', '-File', $infoScript, '-CubPath', $CubPath)
+        if ($CubPassword) { $infoArgs += @('-CubPassword', $CubPassword) }
+        $jsonRaw = & $ps32 @infoArgs 2>$null
+        if ($jsonRaw) {
+            $json = $jsonRaw | ConvertFrom-Json
+            if ($json.coopName) { $coopName = $json.coopName }
+            if ($json.rawDate) {
+                $rawDate = $json.rawDate
+                if ($rawDate -match '^\d{7}$') {
+                    $y = $rawDate.Substring(0,3); $m = $rawDate.Substring(3,2); $d = $rawDate.Substring(5,2)
+                    $month = [int]$m; $day = [int]$d
+                    if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) { $reportDate = "$y/$m/$d" }
+                } elseif ($rawDate -match '^\d{8}$') {
+                    $y = [int]$rawDate.Substring(0,4) - 1911; $m = $rawDate.Substring(4,2); $d = $rawDate.Substring(6,2)
+                    $month = [int]$m; $day = [int]$d
+                    if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) { $reportDate = "$y/$m/$d" }
+                } else { $reportDate = $rawDate }
+            }
+        }
+    }
+}
+
+# 格式化日期（從 DAO 直接讀取時的 rawDate 處理）
+if (-not [string]::IsNullOrEmpty($reportDate) -and $reportDate -notmatch '/') {
+    $rawDate = $reportDate
+    if ($rawDate -match '^\d{7}$') {
+        $y = $rawDate.Substring(0,3); $m = $rawDate.Substring(3,2); $d = $rawDate.Substring(5,2)
+        $month = [int]$m; $day = [int]$d
+        if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) { $reportDate = "$y/$m/$d" }
+    } elseif ($rawDate -match '^\d{8}$') {
+        $y = [int]$rawDate.Substring(0,4) - 1911; $m = $rawDate.Substring(4,2); $d = $rawDate.Substring(6,2)
+        $month = [int]$m; $day = [int]$d
+        if ($month -ge 1 -and $month -le 12 -and $day -ge 1 -and $day -le 31) { $reportDate = "$y/$m/$d" }
     }
 }
 
@@ -360,10 +334,12 @@ try {
     $pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
 
     $doc.SaveAs2($docxPath, 16)  # wdFormatDocumentDefault = 16
+    # 移除 Word 自動設定的 Hidden 屬性
+    Set-ItemProperty -Path $docxPath -Name Attributes -Value 'Normal' -ErrorAction SilentlyContinue
     Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
 
-    # 另存 PDF（wdExportFormatPDF = 17）
-    $doc.SaveAs2($pdfPath, 17)
+    # 另存 PDF — 用 ExportAsFixedFormat 避免覆蓋 DOCX
+    $doc.ExportAsFixedFormat($pdfPath, 17)  # wdExportFormatPDF = 17
     Write-Host "PDF 已儲存: $pdfPath" -ForegroundColor Green
 
     # ── 個別 PDF（可選）────────────────────────────────────────────

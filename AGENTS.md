@@ -10,14 +10,14 @@
 - 唯讀（產出 CSV）：`find_anomaly_members.ps1`（主引擎）→ `CUB_異常社員_對帳單排序_YYYYMMDD_HHmmss.csv`；`filter_by_percent.ps1` → `CUB_異常社員_篩選結果.csv`；`filter_top5.ps1` → `CUB_異常社員_Top5Pct_YYYYMMDD_HHmmss.csv`
 - 唯讀（產出 PDF）：`generate_statements.ps1`（Word COM 自動化）→ `對帳單/對帳單_合併.pdf`；需安裝 Microsoft Word
 - 讀寫（寫入 CUB.MDB）：`audit_register.ps1`（`查核登記表`）、`loan_merge_check.ps1`（`M_Loan_All`）、`manage_nonmail.ps1`（`M_對帳明細.不寄發`）、`reconcile_reply.ps1`（`k_對帳單回覆`）
-- `balance_check.ps1` → 科目餘額 / 資產負債表 / 損益表，需 `st_科目別` 表<br>`install.ps1` → 自動下載安裝 Access Database Engine 2016 32-bit<br>`pack.ps1` → 打包發布 ZIP（排除自身、CUB.MDB、CSV、.git、AGENTS.md）
+- `balance_check.ps1` → 科目餘額 / 資產負債表 / 損益表，需 `st_科目別` 表<br>`install.ps1` → 自動下載安裝 Access Database Engine 2016 32-bit<br>`pack.ps1` → 打包發布 ZIP（排除自身、CUB.MDB、CSV、.git、AGENTS.md）<br>`read_cub_info.ps1` → 32-bit 專用輔助腳本，從 CUB.MDB 讀取合作社名+日期，供 `generate_statements.ps1` 在64-bit pwsh 下呼叫
 
 ## 必要環境
 
 - **Access Database Engine 2016 (32-bit)** — 才能建立 `DAO.DBEngine.120` COM 物件。執行 `安裝環境.bat` 或 `install.ps1` 自動安裝
 - **PowerShell 7+** (`pwsh`)
 - **Microsoft Word** — `generate_statements.ps1` 需要 Word COM 自動化
-- `.ps1` 內建 32-bit 檢查；若在 64-bit pwsh 下偵測不到 DAO，以 `SysWOW64\powershell.exe` 重啟自身（`$env:DAO_RESTARTED` 防無限迴圈）
+- `.ps1` 內建 32-bit 檢查；若在 64-bit pwsh 下偵測不到 DAO，以 `SysWOW64\powershell.exe` 重啟自身（`$env:DAO_RESTARTED` 防無限迴圈）。`generate_statements.ps1` 改用 `read_cub_info.ps1` 僅做32-bit 讀取，避免 Word COM 在 PS 5.1 下過慢
 - CUB.MDB 密碼透過 `-CubPassword` 傳入或 `Read-Host -AsSecureString` 輸入
 - ⚠ `check_lgr.ps1` / `check_lgr2.ps1` / `inspect_cub_schema.ps1` 含硬編碼測試密碼 — 勿 commit 或用於正式環境
 
