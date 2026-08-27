@@ -210,6 +210,8 @@ try {
             $cell.Font.Name="標楷體"; $cell.Font.Size=9; $cell.Font.Bold=$true
             $cell.ParagraphFormat.Alignment=1
             $cell.ParagraphFormat.SpaceAfter=0
+            $cell.ParagraphFormat.SpaceBefore=0
+            $cell.ParagraphFormat.LineSpacingRule=4; $cell.ParagraphFormat.LineSpacing=11
         }
         # 資料列
         for ($r=0; $r -lt $pageCount; $r++) {
@@ -223,6 +225,8 @@ try {
                 $cell.Font.Name="標楷體"; $cell.Font.Size=9
                 $cell.ParagraphFormat.Alignment=1
                 $cell.ParagraphFormat.SpaceAfter=0
+                $cell.ParagraphFormat.SpaceBefore=0
+                $cell.ParagraphFormat.LineSpacingRule=4; $cell.ParagraphFormat.LineSpacing=11
                 # 帳號靠左，姓名靠左，其餘置中
                 if ($c -eq 1 -or $c -eq 2) { $cell.ParagraphFormat.Alignment=0 }
             }
@@ -230,22 +234,28 @@ try {
         # 小計 / 合計 列
         $rowSmall = 2 + $pageCount
         $rowTotal = 3 + $pageCount
+        function Set-DetailCell {
+            param($CellRange, [int]$Align=1, [int]$Bold=0)
+            $CellRange.Font.Name="標楷體"; $CellRange.Font.Size=9; $CellRange.Font.Bold=$Bold
+            $CellRange.ParagraphFormat.Alignment=$Align
+            $CellRange.ParagraphFormat.SpaceAfter=0
+            $CellRange.ParagraphFormat.SpaceBefore=0
+            $CellRange.ParagraphFormat.LineSpacingRule=4; $CellRange.ParagraphFormat.LineSpacing=11
+        }
         # 小計列：僅顯示小計數量
+        Set-DetailCell -CellRange $tbl.Cell($rowSmall,1).Range -Align 2 -Bold 1
         $tbl.Cell($rowSmall,1).Range.Text = "小計："
-        $tbl.Cell($rowSmall,1).Range.Font.Name="標楷體"; $tbl.Cell($rowSmall,1).Range.Font.Size=9; $tbl.Cell($rowSmall,1).Range.Font.Bold=$true
-        $tbl.Cell($rowSmall,1).Range.ParagraphFormat.Alignment=2 # right
+        Set-DetailCell -CellRange $tbl.Cell($rowSmall,2).Range
         $tbl.Cell($rowSmall,2).Range.Text = "$pageCount"
-        $tbl.Cell($rowSmall,2).Range.Font.Name="標楷體"; $tbl.Cell($rowSmall,2).Range.Font.Size=9
         # 合計列
+        Set-DetailCell -CellRange $tbl.Cell($rowTotal,1).Range -Align 2 -Bold 1
         $tbl.Cell($rowTotal,1).Range.Text = "合計："
-        $tbl.Cell($rowTotal,1).Range.Font.Name="標楷體"; $tbl.Cell($rowTotal,1).Range.Font.Size=9; $tbl.Cell($rowTotal,1).Range.Font.Bold=$true
-        $tbl.Cell($rowTotal,1).Range.ParagraphFormat.Alignment=2
+        Set-DetailCell -CellRange $tbl.Cell($rowTotal,2).Range
         $tbl.Cell($rowTotal,2).Range.Text = "$cumulative"
-        $tbl.Cell($rowTotal,2).Range.Font.Name="標楷體"; $tbl.Cell($rowTotal,2).Range.Font.Size=9
         # 其餘儲存格留空
         for ($c=3; $c -le $cols; $c++) {
-            $tbl.Cell($rowSmall,$c).Range.Text = ""
-            $tbl.Cell($rowTotal,$c).Range.Text = ""
+            Set-DetailCell -CellRange $tbl.Cell($rowSmall,$c).Range
+            Set-DetailCell -CellRange $tbl.Cell($rowTotal,$c).Range
         }
 
         # 移到表格後
@@ -302,4 +312,5 @@ try {
     [GC]::Collect(); [GC]::WaitForPendingFinalizers()
     if ($scriptSuccess) { Write-Host "Word 已關閉" -ForegroundColor DarkGray }
 }
+
 
