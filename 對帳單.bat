@@ -74,17 +74,19 @@ echo   2. 百分比篩選
 echo   3. 一鍵篩選前5%%（含結餘）
 echo   4. 重選 CUB.MDB
 echo   5. 產生對帳單 PDF
-echo   6. 結束
+echo   6. 產生寄發明細表
+echo   7. 結束
 echo.
 echo ================================================
-set /p CHOICE=請輸入選項 (1-6):
+set /p CHOICE=請輸入選項 (1-7):
 
 if "%CHOICE%"=="1" goto RUN_ANOMALY
 if "%CHOICE%"=="2" goto FILTER_PERCENT
 if "%CHOICE%"=="3" goto RUN_TOP5
 if "%CHOICE%"=="4" goto SELECT_FILE
 if "%CHOICE%"=="5" goto GENERATE_PDF
-if "%CHOICE%"=="6" goto END
+if "%CHOICE%"=="6" goto GENERATE_DETAIL
+if "%CHOICE%"=="7" goto END
 goto MENU
 
 :RUN_ANOMALY
