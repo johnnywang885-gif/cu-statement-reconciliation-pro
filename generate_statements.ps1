@@ -1,11 +1,11 @@
-# generate_statements.ps1 — Word 套印對帳單，一次性產出 PDF
+﻿# generate_statements.ps1 — Word 套印對帳單（範本克隆版）
 # 用法:
 #   .\generate_statements.ps1                                    (自動找最新 CSV)
 #   .\generate_statements.ps1 -CsvPath "CUB_異常社員_Top5Pct_xxx.csv"
 #   .\generate_statements.ps1 -IndividualPdf                     (另產出個別 PDF)
 #   .\generate_statements.ps1 -CubPassword "thifincub"           (指定 CUB.MDB 密碼)
 # 前置: 須先執行篩選腳本產出 CSV
-# 需求: Microsoft Word 已安裝、Access Database Engine 2016 (32-bit)
+# 需求: Microsoft Word 已安裝（僅用於轉 PDF）、Access Database Engine 2016 (32-bit)
 
 param(
     [string]$CsvPath = "",
@@ -124,7 +124,6 @@ if (-not [string]::IsNullOrEmpty($CoopName)) { $coopName = $CoopName }
 
 # 非互動情境下 Read-Host 會造成「看似卡住」，改為自動 fallback
 if ([string]::IsNullOrEmpty($reportDate) -and [string]::IsNullOrEmpty($ReportDate)) {
-    # 嘗試用今天日期（ROC 格式）避免阻塞
     $now = Get-Date
     $rocY = $now.Year - 1911
     $reportDate = "$rocY/$($now.ToString('MM/dd'))"
@@ -155,26 +154,7 @@ function Sanitize-Filename {
     return $result
 }
 
-function Format-Range {
-    param($Range, [int]$FontSize=14, [string]$FontName="標楷體", [int]$Bold=0,
-          [int]$Align=0, [int]$LineRule=4, [double]$LineVal=12,
-          [int]$BorderBot=1)
-    $Range.Font.Name = $FontName
-    $Range.Font.Size = $FontSize
-    $Range.Font.Bold = $Bold
-    $Range.ParagraphFormat.Alignment = $Align
-    $Range.ParagraphFormat.LineSpacingRule = $LineRule
-    $Range.ParagraphFormat.LineSpacing = $LineVal
-    $Range.ParagraphFormat.SpaceAfter = 0
-    $Range.ParagraphFormat.SpaceBefore = 0
-    if ($BorderBot) {
-        $Range.Borders.Item(3).LineStyle = 1
-        $Range.Borders.Item(3).LineWidth = 6
-        $Range.Borders.Item(3).ColorIndex = 1
-    }
-}
-
-# ── Preflight：清理殘留 Word / 鎖定檔，避免 COM 卡死 ───────────────
+# ── Preflight：清理殘留 Word / 鎖定檔 ─────────────────────────────
 function Clear-StaleWordLocks {
     try {
         Get-ChildItem -Path $PSScriptRoot -Filter "~`$*.docx" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -187,12 +167,10 @@ function Clear-StaleWordLocks {
     } catch {}
 }
 function Stop-StaleWord {
-    param([int]$TimeoutSec = 5)
     try {
         $procs = Get-CimInstance Win32_Process -Filter "Name='WINWORD.EXE'" -ErrorAction SilentlyContinue
         foreach ($p in $procs) {
             $cmd = $p.CommandLine
-            # 只清 /Automation 殘留；若有可見主視窗且非 Automation 則保留（避免關掉使用者正在編輯的文件）
             $isAutomation = $cmd -match "/Automation"
             $hasVisibleTitle = $false
             try {
@@ -200,7 +178,7 @@ function Stop-StaleWord {
                 if ($procObj -and $procObj.MainWindowTitle) { $hasVisibleTitle = $true }
             } catch {}
             if ($isAutomation -or -not $hasVisibleTitle) {
-                Write-Host "  清理殘留 Word 行程 PID $($p.ProcessId) ($cmd)" -ForegroundColor DarkGray
+                Write-Host "  清理殘留 Word 行程 PID $($p.ProcessId)" -ForegroundColor DarkGray
                 try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
             }
         }
@@ -210,406 +188,352 @@ function Stop-StaleWord {
 Clear-StaleWordLocks
 Stop-StaleWord
 
-# ── 產生 Word → PDF ──────────────────────────────────────────────
+# ── 範本克隆產生 DOCX（Open XML）───────────────────────────────
+$wNs = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+$w14Ns = "http://schemas.microsoft.com/office/word/2010/wordml"
+
+function New-ParaId {
+    $chars = "0123456789ABCDEF"
+    $id = ""
+    for ($i=0; $i -lt 8; $i++) { $id += $chars[(Get-Random -Maximum 16)] }
+    return $id
+}
+
+function Set-ParaText {
+    param($pNode, [string]$newText, $docXml, $nsMgr)
+    # 保留 pPr，重置所有 w:r / w:hyperlink 等，改為單一 w:r
+    $pPr = $pNode.SelectSingleNode("w:pPr", $nsMgr)
+    $firstR = $pNode.SelectSingleNode("w:r", $nsMgr)
+    $origRPr = $null
+    if ($firstR) { $origRPr = $firstR.SelectSingleNode("w:rPr", $nsMgr) }
+    $toRemove = @()
+    foreach ($ch in $pNode.ChildNodes) {
+        if ($ch.LocalName -ne "pPr") { $toRemove += $ch }
+    }
+    foreach ($c in $toRemove) { $null = $pNode.RemoveChild($c) }
+    $newR = $docXml.CreateElement("w:r", $wNs)
+    if ($origRPr) { $null = $newR.AppendChild($origRPr.CloneNode($true)) }
+    $newT = $docXml.CreateElement("w:t", $wNs)
+    if ($newText -match "^\s" -or $newText -match "\s$") {
+        $null = $newT.SetAttribute("xml:space", "preserve")
+    }
+    $null = $newT.AppendChild($docXml.CreateTextNode($newText))
+    $null = $newR.AppendChild($newT)
+    $null = $pNode.AppendChild($newR)
+}
+
+function Set-TableCellText {
+    param($tblNode, [int]$rowIdx, [int]$colIdx, [string]$newText, $docXml, $nsMgr)
+    # rowIdx/colIdx 為 0-based
+    $trs = $tblNode.SelectNodes("w:tr", $nsMgr)
+    if ($rowIdx -ge $trs.Count) { return }
+    $tr = $trs[$rowIdx]
+    $tcs = $tr.SelectNodes("w:tc", $nsMgr)
+    if ($colIdx -ge $tcs.Count) { return }
+    $tc = $tcs[$colIdx]
+    $p = $tc.SelectSingleNode("w:p", $nsMgr)
+    if (-not $p) { return }
+    Set-ParaText -pNode $p -newText $newText -docXml $docXml -nsMgr $nsMgr
+    # 對齊：金額欄靠右，其餘置中（依範本已設，此處僅校正金額）
+    if ($colIdx -eq 1 -and $rowIdx -gt 0) {
+        $pPr = $p.SelectSingleNode("w:pPr", $nsMgr)
+        if (-not $pPr) {
+            $pPr = $docXml.CreateElement("w:pPr", $wNs)
+            $null = $p.InsertBefore($pPr, $p.FirstChild)
+        }
+        $jc = $pPr.SelectSingleNode("w:jc", $nsMgr)
+        if (-not $jc) { $jc = $docXml.CreateElement("w:jc", $wNs); $null = $pPr.AppendChild($jc) }
+        $null = $jc.SetAttribute("val", $wNs, "right")
+    }
+}
+
+function Add-KeepAndBreak {
+    param($pNode, [bool]$isFirstOfBlock, [bool]$isLastOfBlock, $docXml, $nsMgr)
+    $pPr = $pNode.SelectSingleNode("w:pPr", $nsMgr)
+    if (-not $pPr) {
+        $pPr = $docXml.CreateElement("w:pPr", $wNs)
+        $pNode.InsertBefore($pPr, $pNode.FirstChild) | Out-Null
+    }
+    # keepLines 全加
+    if (-not $pPr.SelectSingleNode("w:keepLines", $nsMgr)) {
+        $kl = $docXml.CreateElement("w:keepLines", $wNs)
+        $null = $pPr.AppendChild($kl)
+    }
+    # keepNext 除了塊內最後一段
+    if (-not $isLastOfBlock) {
+        if (-not $pPr.SelectSingleNode("w:keepNext", $nsMgr)) {
+            $kn = $docXml.CreateElement("w:keepNext", $wNs)
+            $null = $pPr.AppendChild($kn)
+        }
+    }
+    # pageBreakBefore 僅塊首（第二塊起）
+    if ($isFirstOfBlock) {
+        if (-not $pPr.SelectSingleNode("w:pageBreakBefore", $nsMgr)) {
+            $pb = $docXml.CreateElement("w:pageBreakBefore", $wNs)
+            $null = $pPr.AppendChild($pb)
+        }
+    }
+    # 更新 paraId 避免重複
+    try {
+        $null = $pNode.SetAttribute("paraId", $w14Ns, (New-ParaId))
+        $null = $pNode.SetAttribute("textId", $w14Ns, "77777777")
+    } catch {}
+}
+
+$templatePath = Join-Path $PSScriptRoot "對帳單列印範本.docx"
+if (-not (Test-Path $templatePath)) {
+    Write-Host "找不到範本: $templatePath" -ForegroundColor Red
+    exit 1
+}
+$outDir = Join-Path $PSScriptRoot "對帳單"
+if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
+$docxPath = Join-Path $outDir "對帳單_合併.docx"
+$pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
+
+Write-Host "產生 DOCX（範本克隆）..." -ForegroundColor Yellow
+$tmpRoot = Join-Path $env:TEMP ("opencode_stmt_{0}" -f [Guid]::NewGuid().ToString("N"))
+$expandPath = Join-Path $tmpRoot "tpl"
+New-Item -ItemType Directory -Path $expandPath -Force | Out-Null
+Expand-Archive -LiteralPath $templatePath -DestinationPath $expandPath -Force
+
+$docXmlPath = Join-Path $expandPath "word/document.xml"
+[xml]$docXml = Get-Content -LiteralPath $docXmlPath -Raw -Encoding UTF8
+$nsMgr = New-Object System.Xml.XmlNamespaceManager($docXml.NameTable)
+$nsMgr.AddNamespace("w", $wNs)
+$nsMgr.AddNamespace("w14", $w14Ns)
+
+$body = $docXml.DocumentElement.SelectSingleNode("w:body", $nsMgr)
+$sectPr = $body.SelectSingleNode("w:sectPr", $nsMgr)
+if ($sectPr) { $null = $body.RemoveChild($sectPr) }
+
+# 範本塊：27 p + 1 tbl = 28 節點（依範本實測）
+$memberNodes = @()
+foreach ($ch in $body.ChildNodes) { $memberNodes += $ch }
+$body.RemoveAll()
+
+Write-Host "  範本塊: $($memberNodes.Count) 節點 (含 tbl)" -ForegroundColor DarkGray
+
+# longText 範本（P25, body index 24）
+$longTextTemplate = "　　本對帳單乃由中華民國儲蓄互助協會督導組寄發，係為稽核儲蓄互助社之帳務及保障您的權益所做的例行查核對帳，您在 {0} 帳戶至 {1} 止各項餘額如下表。為維護您權益，請按您的存摺金額填入後，將此單以傳真方式或郵寄擲回。謝謝您的合作！"
+
+$rowIdx = 0
+foreach ($row in $validRows) {
+    $rowIdx++
+    if ($rowIdx % 10 -eq 1 -or $rowIdx -eq $validRows.Count) {
+        Write-Host "    產生 $rowIdx/$($validRows.Count) ..." -ForegroundColor DarkGray
+    }
+    $addrRaw = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
+    $postalCode = ""; $address = $addrRaw
+    if ($addrRaw -match '^(\d{3,5})(.+)') { $postalCode = $Matches[1]; $address = $Matches[2].Trim() }
+    $addrLine = if ($postalCode) { "$postalCode  $address" } else { $address }
+    $name1 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
+    $nameLine = "$name1  君啟"
+    $longText = $longTextTemplate -f $coopName, $ReportDate
+    $accNo = if ($row.AccNo) { $row.AccNo } else { "" }
+    $share = if ($row.LGR_Share) { [long]$row.LGR_Share } else { 0 }
+    $loan  = if ($row.LGR_Loan) { [long]$row.LGR_Loan } else { 0 }
+    $reserve = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
+    $shareStr = "{0:N0}" -f $share
+    $loanStr  = "{0:N0}" -f $loan
+    $reserveStr = "{0:N0}" -f $reserve
+    $footerText = "帳號: $accNo                    社員:__________________(簽名或蓋章)             SN:    $rowIdx   "
+
+    $isFirstBlock = ($rowIdx -eq 1)
+    # 複製 28 節點
+    $clones = @()
+    for ($i=0; $i -lt $memberNodes.Count; $i++) {
+        $orig = $memberNodes[$i]
+        $clone = $orig.CloneNode($true)
+        $clones += $clone
+    }
+    # 依索引替換（對應範本 body 0-based）
+    # 15: 地址, 16: 姓名, 24: 長文, 27: 頁尾, 25: tbl 金額
+    # 注意：索引對應上段 dump：15=545地址,16=君啟,24=長文,25=tbl,27=頁尾
+    Set-ParaText -pNode $clones[15] -newText $addrLine -docXml $docXml -nsMgr $nsMgr
+    Set-ParaText -pNode $clones[16] -newText $nameLine -docXml $docXml -nsMgr $nsMgr
+    Set-ParaText -pNode $clones[24] -newText $longText -docXml $docXml -nsMgr $nsMgr
+    Set-ParaText -pNode $clones[27] -newText $footerText -docXml $docXml -nsMgr $nsMgr
+    # tbl 金額：tbl 為 clones[25]
+    $tblNode = $clones[25]
+    Set-TableCellText -tblNode $tblNode -rowIdx 1 -colIdx 1 -newText $shareStr -docXml $docXml -nsMgr $nsMgr
+    Set-TableCellText -tblNode $tblNode -rowIdx 2 -colIdx 1 -newText $loanStr -docXml $docXml -nsMgr $nsMgr
+    Set-TableCellText -tblNode $tblNode -rowIdx 3 -colIdx 1 -newText $reserveStr -docXml $docXml -nsMgr $nsMgr
+    # tbl cantSplit
+    $trs = $tblNode.SelectNodes("w:tr", $nsMgr)
+    foreach ($tr in $trs) {
+        $trPr = $tr.SelectSingleNode("w:trPr", $nsMgr)
+        if (-not $trPr) { $trPr = $docXml.CreateElement("w:trPr", $wNs); $tr.PrependChild($trPr) | Out-Null }
+        if (-not $trPr.SelectSingleNode("w:cantSplit", $nsMgr)) {
+            $cs = $docXml.CreateElement("w:cantSplit", $wNs)
+            $trPr.AppendChild($cs) | Out-Null
+        }
+        # trHeight 已為 20，無需改
+    }
+    # keep / pageBreak：對塊內所有 p 加 keep，確保整塊不跨頁
+    $pIndicesInBlock = @(0..24) + @(26,27) # 所有 p 的 clone 索引（跳過 tbl 25）
+    for ($pi=0; $pi -lt $pIndicesInBlock.Count; $pi++) {
+        $idx = $pIndicesInBlock[$pi]
+        $isLast = ($pi -eq $pIndicesInBlock.Count -1)
+        $addBreak = ($pi -eq 0 -and -not $isFirstBlock)
+        Add-KeepAndBreak -pNode $clones[$idx] -isFirstOfBlock $addBreak -isLastOfBlock $isLast -docXml $docXml -nsMgr $nsMgr
+    }
+
+    foreach ($c in $clones) { $null = $body.AppendChild($c) }
+}
+
+# 加回 sectPr
+if ($sectPr) { $null = $body.AppendChild($sectPr) }
+$docXml.Save($docXmlPath)
+
+# 重新打包為 DOCX
+if (Test-Path $docxPath) { Remove-Item $docxPath -Force }
+Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+[System.IO.Compression.ZipFile]::CreateFromDirectory($expandPath, $docxPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+# 修正屬性
+try { (Get-Item $docxPath -Force).Attributes = 'Normal' } catch {}
+Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
+
+# 清理暫存
+try { Remove-Item $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+# 確保檔案釋放且 DAO COM 已回收
+[GC]::Collect(); [GC]::WaitForPendingFinalizers()
+Start-Sleep -Seconds 1
+
+# ── 轉 PDF（Word COM 僅此處使用）─────────────────────────────
 $word = $null
 $doc = $null
 $scriptSuccess = $false
-
 try {
-    # Word 啟動（帶重試；逾時由外層呼叫的 bat/pwsh 控制，避免 Job 造成二次阻塞）
-    $word = $null
-    $maxRetries = 3
-    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
-        try {
-            if ($attempt -gt 1) { Write-Host "  重試 Word 啟動 ($attempt/$maxRetries)..." -ForegroundColor Yellow }
-            $word = New-Object -ComObject Word.Application
-            $word.Visible = $false
-            $word.DisplayAlerts = 0  # wdAlertsNone
-            try { $word.AutomationSecurity = 3 } catch {}  # msoAutomationSecurityForceDisable
-            try { $word.ScreenUpdating = $false } catch {}
-            try { $word.Options.CheckSpellingAsYouType = $false } catch {}
-            try { $word.Options.CheckGrammarAsYouType = $false } catch {}
-            break
-        } catch {
-            Write-Host "  Word 啟動失敗: $($_.Exception.Message)" -ForegroundColor Yellow
-            $word = $null
-            if ($attempt -lt $maxRetries) { Stop-StaleWord; Clear-StaleWordLocks; Start-Sleep -Seconds 2 } else { throw }
-        }
+    Write-Host "轉 PDF..." -ForegroundColor Yellow
+    # 先轉到本機暫存再搬回雲端硬碟，避免雲端同步鎖定
+    $tmpPdf = Join-Path $env:TEMP ("stmt_{0}.pdf" -f [Guid]::NewGuid().ToString("N"))
+    if (Test-Path $pdfPath) {
+        try { Get-Process WINWORD -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1 } catch {}
+        try { Remove-Item $pdfPath -Force -ErrorAction SilentlyContinue } catch { Start-Sleep -Seconds 2; try { Remove-Item $pdfPath -Force -ErrorAction SilentlyContinue } catch {} }
     }
-    if (-not $word) { throw "無法啟動 Word，請檢查 Office 安裝或增益集" }
-    Write-Host "  Word 已啟動" -ForegroundColor DarkGray
-
-    Write-Host "  建立文件..." -ForegroundColor DarkGray
-    $doc = $word.Documents.Add()
-    Write-Host "  文件已建立" -ForegroundColor DarkGray
-    $sel = $word.Selection
-    Write-Host "  設定版面..." -ForegroundColor DarkGray
-
-    $doc.PageSetup.TopMargin    = 28.35
-    Write-Host "    TopMargin OK" -ForegroundColor DarkGray
-    $doc.PageSetup.BottomMargin = 8.5
-    Write-Host "    BottomMargin OK" -ForegroundColor DarkGray
-    $doc.PageSetup.LeftMargin   = 28.35
-    Write-Host "    LeftMargin OK" -ForegroundColor DarkGray
-    $doc.PageSetup.RightMargin  = 28.35
-    Write-Host "    RightMargin OK" -ForegroundColor DarkGray
-
-    Write-Host "  開始產生 $($validRows.Count) 筆..." -ForegroundColor Yellow
-    $rowIdx = 0
-    foreach ($row in $validRows) {
-        if ($rowIdx % 10 -eq 0) { Write-Host "    進度 $rowIdx/$($validRows.Count)..." -ForegroundColor DarkGray }
-        $rowIdx++
-
-        $addrRaw  = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
-        $postalCode = ""; $address = $addrRaw
-        if ($addrRaw -match '^(\d{3,5})(.+)') {
-            $postalCode = $Matches[1]; $address = $Matches[2].Trim()
-        }
-        $name1 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
-
-        # ── P1-P8: 空白區域 ──────────────────────────────────────
-        for ($i = 0; $i -lt 8; $i++) {
-            $sel.TypeParagraph()
-            $pFmt = $sel.Paragraphs.Last.Range.ParagraphFormat
-            $pFmt.LineSpacingRule = 4
-            $pFmt.LineSpacing = 0.7
-            $pFmt.SpaceAfter = 0
-            $pFmt.SpaceBefore = 0
-        }
-
-        # ── P9: 第一條摺線 ───────────────────────────────────────
-        $sel.TypeParagraph()
-        $p9 = $sel.Paragraphs.Last.Range
-        Format-Range $p9 -LineRule 5 -LineVal 1
-
-        # ── P10-P14: 協會資訊（底線, exact 12pt）────────────────
-        $assocLines = @("04", "台中市北區北平路一段33號", "中華民國儲蓄互助協會",
-                        "電話：04-22917272~8603", "傳真：04-22936903")
-        foreach ($line in $assocLines) {
-            $sel.TypeText($line)
-            $sel.TypeParagraph()
-            Format-Range $sel.Paragraphs.Last.Range -LineRule 4 -LineVal 12 -BorderBot 1
-        }
-
-        # ── P15: 空行（auto 48, 底線）───────────────────────────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-        # ── P16: 收件人地址（標楷體 14pt, 置中, auto 48, 底線）──
-        $addrLine = if ($postalCode) { "$postalCode  $address" } else { $address }
-        $sel.TypeText($addrLine)
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Align 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-        # ── P17: 姓名+君啟（標楷體 14pt 粗體, 置中, auto 48, 底線）
-        $sel.TypeText("$name1  君啟")
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-        # ── P18: 空行（置中, 粗體, 標楷體, auto 48, 底線）──────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-        # ── P19: 空行（exact 14pt, 粗體, 底線）──────────────────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-        # ── P20: 空行（exact 14pt, 粗體, 底線）──────────────────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-        # ── P21: 第二條摺線（exact 14pt, 粗體）─────────────────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 0
-
-        # ── P22: 空行（exact 14pt, 粗體, 底線）──────────────────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-        # ── P23: 親愛的社員您好: ─────────────────────────────────
-        $sel.TypeText("親愛的社員您好:")
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-        # ── P24: 信文正文 ─────────────────────────────────────────
-        $sel.TypeText("　　本對帳單乃由中華民國儲蓄互助協會督導組寄發，係為稽核儲蓄互助社之帳務及保障您的權益所做的例行查核對帳，您在 $coopName 帳戶至 $reportDate 止各項餘額如下表。為維護您權益，請按您的存摺金額填入後，將此單以傳真方式或郵寄擲回。謝謝您的合作！")
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-        # ── 表格 ──────────────────────────────────────────────────
-        $share   = if ($row.LGR_Share)   { [long]$row.LGR_Share   } else { 0 }
-        $loan    = if ($row.LGR_Loan)    { [long]$row.LGR_Loan    } else { 0 }
-        $Reserve = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
-
-        $tableData = @(
-            @("股　金",    $share,   "□正確　□錯誤：實有金額　　　　　"),
-            @("貸　款",    $loan,    "□正確　□錯誤：實有金額　　　　　"),
-            @("備　轉　金", $Reserve, "□正確　□錯誤：實有金額　　　　　"),
-            @("備　註",    "",       "")
-        )
-
-        $numRows = $tableData.Count + 1
-        $sel.Tables.Add($sel.Range, $numRows, 3) | Out-Null
-        $tbl = $sel.Tables(1)
-        $tbl.Borders.Enable = 1
-        $tbl.Borders.OutsideLineStyle = 1
-        $tbl.Borders.InsideLineStyle   = 1
-        $tbl.Columns(1).Width = 116
-        $tbl.Columns(2).Width = 95
-        $tbl.Columns(3).Width = 323
-
-        # 表頭
-        $tbl.Cell(1,1).Range.Text = "帳目"
-        $tbl.Cell(1,2).Range.Text = "餘額"
-        $tbl.Cell(1,3).Range.Text = "核 對 勘 誤 回 函 說 明"
-        for ($c = 1; $c -le 3; $c++) {
-            $cr = $tbl.Cell(1,$c).Range
-            $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
-            $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
-            $cr.ParagraphFormat.Alignment = 1
-            $cr.Collapse(0) | Out-Null
-        }
-
-        # 資料列
-        for ($i = 0; $i -lt $tableData.Count; $i++) {
-            $r = $i + 2
-            $val = $tableData[$i][1]
-            $valStr = if ($val -is [string]) { $val } else { "{0:N0}" -f $val }
-            $tbl.Cell($r,1).Range.Text = $tableData[$i][0]
-            $tbl.Cell($r,2).Range.Text = $valStr
-            $tbl.Cell($r,3).Range.Text = $tableData[$i][2]
-            for ($c = 1; $c -le 3; $c++) {
-                $cr = $tbl.Cell($r,$c).Range
-                $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
-                $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
-                if ($c -eq 2) { $cr.ParagraphFormat.Alignment = 2 }
-                $cr.Collapse(0) | Out-Null
-            }
-        }
-
-        $sel.EndOf(15) | Out-Null
-        $sel.MoveDown() | Out-Null
-
-        # ── P25: 表格後空行（底線, space=21, auto 48）───────────
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-        # ── P26: 頁尾 ────────────────────────────────────────────
-        $accNo = if ($row.AccNo) { $row.AccNo } else { "" }
-        $sel.TypeText("帳號: $accNo                    社員:__________________(簽名或蓋章)             SN:    $rowIdx   ")
-        $sel.TypeParagraph()
-        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+    $word = New-Object -ComObject Word.Application
+    $word.Visible = $false
+    $word.DisplayAlerts = 0
+    try { $word.AutomationSecurity = 3 } catch {}
+    try { $word.ScreenUpdating = $false } catch {}
+    $doc = $word.Documents.Open($docxPath, $false, $false)
+    try {
+        $doc.SaveAs2($tmpPdf, 17)
+    } catch {
+        Write-Host "  SaveAs2 失敗，改用 ExportAsFixedFormat..." -ForegroundColor Yellow
+        $doc.ExportAsFixedFormat($tmpPdf, 17)
     }
-
-    # ── 存檔 ──────────────────────────────────────────────────────
-    $outDir = Join-Path $PSScriptRoot "對帳單"
-    if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
-
-    $docxPath = Join-Path $outDir "對帳單_合併.docx"
-    $pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
-
-    $doc.SaveAs2($docxPath, 16)
-    $f = Get-Item $docxPath -Force
-    $f.Attributes = 'Normal'
-    Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
-
-    # ── 後處理：透過 Word COM 設定 PageBreakBefore ──────────────────
-    Write-Host "後處理：加入分頁符號..." -ForegroundColor Yellow
-
-    $memberCount = 0
-    $docEnd = $doc.Content.End
-    for ($t = 2; $t -le $doc.Tables.Count; $t++) {
-        $tblEnd = $doc.Tables($t).Range.End
-        $rangeEnd = [Math]::Min($tblEnd + 5000, $docEnd)
-        if ($tblEnd -ge $docEnd) { continue }
-        $afterTbl = $doc.Range($tblEnd, $rangeEnd)
-        if ($afterTbl.Paragraphs.Count -ge 3) {
-            $p1Range = $afterTbl.Paragraphs(3).Range
-            $p1Range.ParagraphFormat.PageBreakBefore = $true
-            $memberCount++
-        }
-    }
-    Write-Host "  已為 $memberCount 筆加入 PageBreakBefore" -ForegroundColor DarkGray
-
-    # ── 收尾：讓最後一人的頁尾段落成為文件最後一段，消除多餘空頁 ──
-    # Word 文件強制結尾必須有至少一個段落；若最後一段是空白，會被
-    # 擠到最後一頁之後（多一個空白頁）。解法：刪除最後一人「帳號」
-    # 頁尾之後的所有段落，使頁尾本身成為文件最後一段（與範本一致）。
-    $lastIdx = $doc.Paragraphs.Count
-    $footerIdx = $lastIdx
-    $docEnd = $doc.Content.End
-    for ($i = $lastIdx; $i -ge [Math]::Max(2, $lastIdx - 30); $i--) {
-        $t = $doc.Paragraphs($i).Range.Text.TrimEnd("`r", "`n", [char]7)
-        if ($t.Trim() -ne '') { $footerIdx = $i; break }
-    }
-    $footerEnd = $doc.Paragraphs($footerIdx).Range.End
-    if ($footerEnd -lt $docEnd) {
-        $trailing = $doc.Range($footerEnd, $docEnd)
-        $null = $trailing.Delete()
-    }
-
-    # ── 儲存含分頁的 DOCX ─────────────────────────────────────────
-    $doc.Save()
-    Write-Host "DOCX 已更新（含分頁）: $docxPath" -ForegroundColor Green
-
-    # ── 轉 PDF ─────────────────────────────────────────────────────
-    $doc.SaveAs2($pdfPath, 17)
-    Write-Host "PDF 已儲存: $pdfPath" -ForegroundColor Green
-
-    # ── 個別 PDF（可選）────────────────────────────────────────────
-    if ($IndividualPdf) {
-        Write-Host "產生個別 PDF..." -ForegroundColor Yellow
-        $sn = 0
-        foreach ($row in $validRows) {
-            $sn++
-            $singleDoc = $word.Documents.Add()
-            $singleSel = $word.Selection
-            $singleDoc.PageSetup.TopMargin    = 28.35
-            $singleDoc.PageSetup.BottomMargin = 8.5
-            $singleDoc.PageSetup.LeftMargin   = 28.35
-            $singleDoc.PageSetup.RightMargin  = 28.35
-
-            $addrRaw2 = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
-            $postalCode2 = ""; $address2 = $addrRaw2
-            if ($addrRaw2 -match '^(\d{3,5})(.+)') { $postalCode2 = $Matches[1]; $address2 = $Matches[2].Trim() }
-            $name2 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
-
-            for ($i = 0; $i -lt 8; $i++) { $singleSel.TypeParagraph() }
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -LineRule 5 -LineVal 1
-
-            foreach ($line in $assocLines) {
-                $singleSel.TypeText($line)
-                $singleSel.TypeParagraph()
-                Format-Range $singleSel.Paragraphs.Last.Range -LineRule 4 -LineVal 12 -BorderBot 1
-            }
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-            $addrLine2 = if ($postalCode2) { "$postalCode2  $address2" } else { $address2 }
-            $singleSel.TypeText($addrLine2)
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Align 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-            $singleSel.TypeText("$name2  君啟")
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 0
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-            $singleSel.TypeText("親愛的社員您好:")
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-            $singleSel.TypeText("　　本對帳單乃由中華民國儲蓄互助協會督導組寄發，係為稽核儲蓄互助社之帳務及保障您的權益所做的例行查核對帳，您在 $coopName 帳戶至 $reportDate 止各項餘額如下表。為維護您權益，請按您的存摺金額填入後，將此單以傳真方式或郵寄擲回。謝謝您的合作！")
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
-
-            $s2 = if ($row.LGR_Share)   { [long]$row.LGR_Share   } else { 0 }
-            $l2 = if ($row.LGR_Loan)    { [long]$row.LGR_Loan    } else { 0 }
-            $r2 = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
-            $td2 = @(
-                @("股　金",    $s2, "□正確　□錯誤：實有金額　　　　　"),
-                @("貸　款",    $l2, "□正確　□錯誤：實有金額　　　　　"),
-                @("備　轉　金", $r2, "□正確　□錯誤：實有金額　　　　　"),
-                @("備　註",    "",  "")
-            )
-            $nr2 = $td2.Count + 1
-            $singleSel.Tables.Add($singleSel.Range, $nr2, 3) | Out-Null
-            $st2 = $singleSel.Tables(1)
-            $st2.Borders.Enable = 1
-            $st2.Borders.OutsideLineStyle = 1
-            $st2.Borders.InsideLineStyle   = 1
-            $st2.Columns(1).Width = 116
-            $st2.Columns(2).Width = 95
-            $st2.Columns(3).Width = 323
-            $st2.Cell(1,1).Range.Text = "帳目"
-            $st2.Cell(1,2).Range.Text = "餘額"
-            $st2.Cell(1,3).Range.Text = "核 對 勘 誤 回 函 說 明"
-            for ($c = 1; $c -le 3; $c++) {
-                $cr = $st2.Cell(1,$c).Range
-                $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
-                $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
-                $cr.ParagraphFormat.Alignment = 1; $cr.Collapse(0) | Out-Null
-            }
-            for ($i = 0; $i -lt $td2.Count; $i++) {
-                $ri = $i + 2
-                $vs = if ($td2[$i][1] -is [string]) { $td2[$i][1] } else { "{0:N0}" -f $td2[$i][1] }
-                $st2.Cell($ri,1).Range.Text = $td2[$i][0]
-                $st2.Cell($ri,2).Range.Text = $vs
-                $st2.Cell($ri,3).Range.Text = $td2[$i][2]
-                for ($c = 1; $c -le 3; $c++) {
-                    $cr = $st2.Cell($ri,$c).Range
-                    $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
-                    $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
-                    if ($c -eq 2) { $cr.ParagraphFormat.Alignment = 2 }
-                    $cr.Collapse(0) | Out-Null
-                }
-            }
-            $singleSel.EndOf(15) | Out-Null
-            $singleSel.MoveDown() | Out-Null
-
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-            $singleSel.TypeText("帳號: $($row.AccNo)                    社員:__________________(簽名或蓋章)             SN:    $sn   ")
-            $singleSel.TypeParagraph()
-            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
-
-            $acc = if ($row.AccNo) { $row.AccNo } else { "000000" }
-            $safeName = Sanitize-Filename $name2
-            $singlePdf = Join-Path $outDir "SN${sn}_${acc}_${safeName}.pdf"
-            $singleDoc.SaveAs2($singlePdf, 17)
-            $singleDoc.Close(0)
-            [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($singleDoc)
-
-            if ($sn % 20 -eq 0) {
-                [System.GC]::Collect()
-                [System.GC]::WaitForPendingFinalizers()
-            }
-        }
-        Write-Host "  個別 PDF 已產出至 $outDir" -ForegroundColor Green
-    }
-
     $doc.Close(0)
     $doc = $null
+    # 搬回正式位置（雲端硬碟可能鎖定，改用重試 + 改名備援）
+    $finalPdf = $pdfPath
+    $retry=0
+    $moved=$false
+    while ($retry -lt 5) {
+        try {
+            if (Test-Path $finalPdf) {
+                try { Remove-Item $finalPdf -Force -ErrorAction Stop } catch {
+                    # 若被雲端同步鎖定，改存為附檔名
+                    $finalPdf = Join-Path $outDir ("對帳單_合併_{0}.pdf" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+                    Write-Host "  原 PDF 被佔用，改存為: $finalPdf" -ForegroundColor Yellow
+                    break
+                }
+            }
+            Move-Item -LiteralPath $tmpPdf -Destination $finalPdf -Force -ErrorAction Stop
+            $moved=$true
+            break
+        } catch {
+            $retry++
+            Start-Sleep -Seconds 2
+            if ($retry -ge 5) {
+                $finalPdf = Join-Path $outDir ("對帳單_合併_{0}.pdf" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+                try { Move-Item -LiteralPath $tmpPdf -Destination $finalPdf -Force -ErrorAction Stop; $moved=$true; break } catch { throw }
+            }
+        }
+    }
+    if (-not $moved -and (Test-Path $tmpPdf)) {
+        # 最後備援：直接複製
+        try { Copy-Item -LiteralPath $tmpPdf -Destination $finalPdf -Force; $moved=$true } catch {}
+    }
+    if ($moved) { $pdfPath = $finalPdf }
+    Write-Host "PDF 已儲存: $pdfPath" -ForegroundColor Green
     $scriptSuccess = $true
-
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "  完成！共 $($validRows.Count) 筆社員" -ForegroundColor Cyan
     Write-Host "  合併 PDF: $pdfPath" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Cyan
-}
-catch {
+    # ── 個別 PDF（可選）────────────────────────────────────────
+    if ($IndividualPdf) {
+        Write-Host "產生個別 PDF..." -ForegroundColor Yellow
+        # 個別改為同樣範本克隆單筆，逐筆轉 PDF
+        $sn = 0
+        foreach ($row in $validRows) {
+            $sn++
+            $tmpSingle = Join-Path $env:TEMP ("opencode_single_{0}_{1}" -f $sn, [Guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $tmpSingle -Force | Out-Null
+            Expand-Archive -LiteralPath $templatePath -DestinationPath $tmpSingle -Force
+            $sDocXmlPath = Join-Path $tmpSingle "word/document.xml"
+            [xml]$sDocXml = Get-Content -LiteralPath $sDocXmlPath -Raw -Encoding UTF8
+            $sNsMgr = New-Object System.Xml.XmlNamespaceManager($sDocXml.NameTable)
+            $sNsMgr.AddNamespace("w", $wNs); $sNsMgr.AddNamespace("w14", $w14Ns)
+            $sBody = $sDocXml.DocumentElement.SelectSingleNode("w:body", $sNsMgr)
+            $sSect = $sBody.SelectSingleNode("w:sectPr", $sNsMgr)
+            if ($sSect) { $null = $sBody.RemoveChild($sSect) }
+            $sNodes = @($sBody.ChildNodes | ForEach-Object { $_ })
+            $sBody.RemoveAll()
+            # 單筆資料同上替換（複用邏輯）
+            $addrRaw2 = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
+            $postal2=""; $addr2=$addrRaw2
+            if ($addrRaw2 -match '^(\d{3,5})(.+)') { $postal2=$Matches[1]; $addr2=$Matches[2].Trim() }
+            $addrLine2 = if ($postal2) { "$postal2  $addr2" } else { $addr2 }
+            $name2 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
+            $nameLine2 = "$name2  君啟"
+            $long2 = $longTextTemplate -f $coopName, $ReportDate
+            $acc2 = if ($row.AccNo) { $row.AccNo } else { "" }
+            $sShare = if ($row.LGR_Share) { [long]$row.LGR_Share } else { 0 }
+            $sLoan  = if ($row.LGR_Loan) { [long]$row.LGR_Loan } else { 0 }
+            $sRes   = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
+            $clones2 = @()
+            foreach ($orig in $sNodes) { $clones2 += $orig.CloneNode($true) }
+            Set-ParaText -pNode $clones2[15] -newText $addrLine2 -docXml $sDocXml -nsMgr $sNsMgr
+            Set-ParaText -pNode $clones2[16] -newText $nameLine2 -docXml $sDocXml -nsMgr $sNsMgr
+            Set-ParaText -pNode $clones2[24] -newText $long2 -docXml $sDocXml -nsMgr $sNsMgr
+            $footer2 = "帳號: $acc2                    社員:__________________(簽名或蓋章)             SN:    $sn   "
+            Set-ParaText -pNode $clones2[27] -newText $footer2 -docXml $sDocXml -nsMgr $sNsMgr
+            $tbl2 = $clones2[25]
+            Set-TableCellText -tblNode $tbl2 -rowIdx 1 -colIdx 1 -newText ("{0:N0}" -f $sShare) -docXml $sDocXml -nsMgr $sNsMgr
+            Set-TableCellText -tblNode $tbl2 -rowIdx 2 -colIdx 1 -newText ("{0:N0}" -f $sLoan) -docXml $sDocXml -nsMgr $sNsMgr
+            Set-TableCellText -tblNode $tbl2 -rowIdx 3 -colIdx 1 -newText ("{0:N0}" -f $sRes) -docXml $sDocXml -nsMgr $sNsMgr
+            foreach ($c in $clones2) { $null = $sBody.AppendChild($c) }
+            if ($sSect) { $null = $sBody.AppendChild($sSect) }
+            $sDocXml.Save($sDocXmlPath)
+            $docxSingle = Join-Path $tmpSingle "single.docx"
+            # 打包
+            $tmpSingleExpanded = $tmpSingle
+            # CreateFromDirectory 需要目錄內含 [Content_Types].xml 等
+            $singleOut = Join-Path $outDir ("SN{0}_{1}_{2}.docx" -f $sn, $acc2, (Sanitize-Filename $name2))
+            if (Test-Path $singleOut) { Remove-Item $singleOut -Force }
+            [System.IO.Compression.ZipFile]::CreateFromDirectory($tmpSingleExpanded, $singleOut, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+            # 轉 PDF
+            $singleDoc = $word.Documents.Open($singleOut, $false, $true)
+            $singlePdf = [System.IO.Path]::ChangeExtension($singleOut, ".pdf")
+            $singleDoc.SaveAs2($singlePdf, 17)
+            $singleDoc.Close(0)
+            try { Remove-Item $tmpSingle -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+            if ($sn % 20 -eq 0) { [GC]::Collect(); [GC]::WaitForPendingFinalizers() }
+        }
+        Write-Host "  個別 PDF 已產出至 $outDir" -ForegroundColor Green
+    }
+} catch {
     Write-Host "錯誤: $_" -ForegroundColor Red
     Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
-}
-finally {
-    if ($doc)    { try { $doc.Close(0) } catch {} }
-    if ($word)   {
-        try { $word.Quit() } catch {}
-        [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word)
-    }
+} finally {
+    if ($doc) { try { $doc.Close(0) } catch {} }
+    if ($word) { try { $word.Quit() } catch {}; [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) }
     if ($dbe) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dbe) }
-    [System.GC]::Collect()
-    [System.GC]::WaitForPendingFinalizers()
+    [GC]::Collect(); [GC]::WaitForPendingFinalizers()
     if ($scriptSuccess) { Write-Host "Word 已關閉" -ForegroundColor DarkGray }
 }
-
 
