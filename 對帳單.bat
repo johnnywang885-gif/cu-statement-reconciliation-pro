@@ -5,14 +5,14 @@ setlocal
 where pwsh >nul 2>nul
 if %errorlevel% neq 0 (
     echo ================================================
-    echo    ï¿½ï¿½ï¿½~ï¿½Gï¿½zï¿½ï¿½ï¿½tï¿½Î©|ï¿½ï¿½ï¿½wï¿½ï¿½ PowerShell 7
+    echo    ¿ù»~¡G±zªº¨t²Î©|¥¼¦w¸Ë PowerShell 7
     echo ================================================
     echo.
-    echo ï¿½ï¿½ï¿½uï¿½ï¿½Ý­nï¿½wï¿½ï¿½ PowerShell 7 ^(pwsh.exe^)ï¿½C
-    echo ï¿½Ð¦Ü¤Uï¿½Cï¿½ï¿½ï¿½}ï¿½Uï¿½ï¿½ï¿½wï¿½Ë¡G
+    echo ¦¹¤u¨ã»Ý­n¦w¸Ë PowerShell 7 ^(pwsh.exe^)¡C
+    echo ½Ð¦Ü¤U¦Cºô§}¤U¸ü¦w¸Ë¡G
     echo https://github.com/PowerShell/PowerShell/releases
     echo.
-    echo ï¿½wï¿½Ë§ï¿½ï¿½ï¿½ï¿½ï¿½Ð­ï¿½ï¿½sï¿½ï¿½ï¿½æ¦¹ï¿½{ï¿½ï¿½ï¿½C
+    echo ¦w¸Ë§¹¦¨«á½Ð­«·s°õ¦æ¦¹µ{¦¡¡C
     echo.
     pause
     exit /b
@@ -29,12 +29,12 @@ for /f "tokens=*" %%i in ('pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0s
 if "%NEW_CUB%"=="" (
     if "%SELECTED_CUB%"=="" (
         echo.
-        echo ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É®×¡Aï¿½{ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½C
+        echo ¥¼¿ï¾ÜÀÉ®×¡Aµ{¦¡µ²§ô¡C
         timeout /t 3 /nobreak >nul
         exit /b
     ) else (
         echo.
-        echo ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü¡Aï¿½~ï¿½ï¿½Ï¥ï¿½ï¿½É®×¡G%SELECTED_CUB%
+        echo ºû«ù­ì¿ï¾Ü¡AÄ~Äò¨Ï¥ÎÀÉ®×¡G%SELECTED_CUB%
         timeout /t 2 /nobreak >nul
         goto MENU
     )
@@ -48,13 +48,13 @@ if not "%CUB_PWD%"=="" goto MENU
 cls
 echo.
 echo ================================================
-echo    CUB.MDB ï¿½Kï¿½X
+echo    CUB.MDB ±K½X
 echo ================================================
 echo.
 for /f "tokens=*" %%p in ('pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0get_password.ps1"') do set "CUB_PWD=%%p"
 if "%CUB_PWD%"=="" (
     echo.
-    echo ï¿½Kï¿½Xï¿½ï¿½ï¿½iï¿½Å¥Õ¡Aï¿½Ð­ï¿½ï¿½sï¿½ï¿½Jï¿½C
+    echo ±K½X¤£¥iªÅ¥Õ¡A½Ð­«·s¿é¤J¡C
     timeout /t 2 /nobreak >nul
     goto GET_PASSWORD
 )
@@ -64,20 +64,20 @@ goto MENU
 cls
 echo.
 echo ================================================
-echo    ï¿½ï¿½bï¿½ï¿½ - ï¿½xï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ³Bï¿½zï¿½tï¿½ï¿½
+echo    ¹ï±b³æ - Àx¤¬ªÀ¸ê®Æ³B²z¨t²Î
 echo ================================================
 echo.
-echo   ï¿½Ø«e CUB.MDBï¿½G%SELECTED_CUB%
+echo   ¥Ø«e CUB.MDB¡G%SELECTED_CUB%
 echo.
-echo   1. ï¿½ï¿½ï¿½`ï¿½ï¿½ï¿½ï¿½
-echo   2. ï¿½Ê¤ï¿½ï¿½ï¿½zï¿½ï¿½
-echo   3. ï¿½@ï¿½ï¿½zï¿½ï¿½e5%%ï¿½]ï¿½tï¿½ï¿½ï¿½lï¿½^
-echo   4. ï¿½ï¿½ï¿½ï¿½ CUB.MDB
-echo   5. ï¿½ï¿½ï¿½Í¹ï¿½bï¿½ï¿½ PDF
-echo   6. ï¿½ï¿½ï¿½ï¿½
+echo   1. ²§±`°»´ú
+echo   2. ¦Ê¤À¤ñ¿z¿ï
+echo   3. ¤@Áä¿z¿ï«e5%%¡]§tµ²¾l¡^
+echo   4. ­«¿ï CUB.MDB
+echo   5. ²£¥Í¹ï±b³æ PDF
+echo   6. µ²§ô
 echo.
 echo ================================================
-set /p CHOICE=ï¿½Ð¿ï¿½Jï¿½ï¶µ (1-6):
+set /p CHOICE=½Ð¿é¤J¿ï¶µ (1-6):
 
 if "%CHOICE%"=="1" goto RUN_ANOMALY
 if "%CHOICE%"=="2" goto FILTER_PERCENT
@@ -90,7 +90,7 @@ goto MENU
 :RUN_ANOMALY
 cls
 echo.
-echo ï¿½ï¿½ï¿½bï¿½ï¿½ï¿½æ²§ï¿½`ï¿½ï¿½ï¿½ï¿½...
+echo ¥¿¦b°õ¦æ²§±`°»´ú...
 echo.
 pwsh -ExecutionPolicy Bypass -File "%~dp0find_anomaly_members.ps1" -CubPath "%SELECTED_CUB%" -CubPassword "%CUB_PWD%"
 echo.
@@ -100,9 +100,9 @@ goto MENU
 :FILTER_PERCENT
 cls
 echo.
-echo ï¿½ï¿½ï¿½bï¿½Ì¤ï¿½Ò¿zï¿½ï¿½...
+echo ¥¿¦b¨Ì¤ñ¨Ò¿z¿ï...
 echo.
-set /p PCT=ï¿½Ð¿ï¿½Jï¿½zï¿½ï¿½Ê¤ï¿½ï¿½ï¿½ (1-100):
+set /p PCT=½Ð¿é¤J¿z¿ï¦Ê¤À¤ñ (1-100):
 if "%PCT%"=="" goto FILTER_PERCENT
 set /a PCT_NUM=%PCT% 2>nul
 if %PCT_NUM% leq 0 goto FILTER_PERCENT
@@ -115,17 +115,17 @@ goto MENU
 :RUN_TOP5
 cls
 echo.
-echo [1/2] ï¿½ï¿½ï¿½æ²§ï¿½`ï¿½ï¿½ï¿½ï¿½...
+echo [1/2] °õ¦æ²§±`°»´ú...
 echo.
 pwsh -ExecutionPolicy Bypass -File "%~dp0find_anomaly_members.ps1" -CubPath "%SELECTED_CUB%" -CubPassword "%CUB_PWD%"
 if %errorlevel% neq 0 (
     echo.
-    echo ï¿½ï¿½ï¿½`ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¡Aï¿½ï¿½ï¿½ï¿½C
+    echo ²§±`°»´ú¥¢±Ñ¡A¤¤¤î¡C
     pause
     goto MENU
 )
 echo.
-echo [2/2] ï¿½zï¿½ï¿½e5%%...
+echo [2/2] ¿z¿ï«e5%%...
 echo.
 pwsh -ExecutionPolicy Bypass -File "%~dp0filter_top5.ps1" -Percent 5
 echo.
@@ -135,10 +135,10 @@ goto MENU
 :GENERATE_PDF
 cls
 echo.
-echo ï¿½ï¿½ï¿½bï¿½ï¿½ï¿½Í¹ï¿½bï¿½ï¿½ PDF...
+echo ¥¿¦b²£¥Í¹ï±b³æ PDF...
 echo.
 if "%SELECTED_CUB%"=="" (
-    echo ï¿½ï¿½ï¿½~ï¿½Gï¿½|ï¿½ï¿½ï¿½Ü¤@ï¿½ï¿½ CUB.MDBï¿½Aï¿½Ð­ï¿½ï¿½ï¿½Ü¡C
+    echo ¿ù»~¡G©|¥¼¿ï¾Ü¤@­Ó CUB.MDB¡A½Ð¥ý¿ï¾Ü¡C
     pause
     goto SELECT_FILE
 )
@@ -150,5 +150,5 @@ goto MENU
 :END
 cls
 echo.
-echo ï¿½Aï¿½ï¿½ï¿½I
+echo ¦A¨£¡I
 timeout /t 2 /nobreak >nul
