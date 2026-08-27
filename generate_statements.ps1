@@ -13,6 +13,7 @@ param(
     [string]$CubPassword = "",
     [string]$CoopName = "",
     [string]$ReportDate = "",
+    [string]$OutPath = "",
     [switch]$IndividualPdf
 )
 
@@ -296,8 +297,15 @@ if (-not (Test-Path $templatePath)) {
 }
 $outDir = Join-Path $PSScriptRoot "對帳單"
 if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
-$docxPath = Join-Path $outDir "對帳單_合併.docx"
-$pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
+if ([string]::IsNullOrEmpty($OutPath)) {
+    $docxPath = Join-Path $outDir "對帳單_合併.docx"
+    $pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
+} else {
+    $OutPath = [System.IO.Path]::GetFullPath($OutPath)
+    $outDir = Split-Path $OutPath -Parent
+    $docxPath = [System.IO.Path]::ChangeExtension($OutPath, ".docx")
+    $pdfPath  = $OutPath
+}
 
 Write-Host "產生 DOCX（範本克隆）..." -ForegroundColor Yellow
 $tmpRoot = Join-Path $env:TEMP ("opencode_stmt_{0}" -f [Guid]::NewGuid().ToString("N"))

@@ -7,7 +7,8 @@ param(
     [string]$CsvPath = "",
     [string]$CubPath = "",
     [string]$CubPassword = "",
-    [string]$OutPath = ""
+    [string]$OutPath = "",
+    [string]$ExcludedCsv = ""
 )
 
 Set-Location (Split-Path -Parent $PSCommandPath)
@@ -261,6 +262,64 @@ try {
         # 移到表格後
         $sel.EndKey(6) | Out-Null # wdStory
         $sel.TypeParagraph()
+    }
+
+    # ── 不寄發對帳單對象列表（若有提供 ExcludedCsv）──────────────
+    if (-not [string]::IsNullOrEmpty($ExcludedCsv) -and (Test-Path $ExcludedCsv)) {
+        $excludedRows = @(Import-Csv $ExcludedCsv -Encoding utf8 | Where-Object { $_.AccNo -and $_.AccNo -ne "" })
+        if ($excludedRows.Count -gt 0) {
+            Write-Host "  追加不寄發對帳單對象列表 ($($excludedRows.Count) 筆)..." -ForegroundColor DarkGray
+            # 分頁
+            $sel.InsertBreak(7) # wdPageBreak
+            # 標題
+            $p = $sel.Paragraphs.Last.Range
+            $p.ParagraphFormat.Alignment = 1
+            $p.ParagraphFormat.SpaceAfter = 6
+            $p.ParagraphFormat.SpaceBefore = 0
+            $p.Font.Name = "標楷體"; $p.Font.Size = 14; $p.Font.Bold = $true
+            $sel.TypeText("不寄發對帳單對象列表")
+            $sel.TypeParagraph()
+            # 列表表格：帳號 | 姓名 | 原因
+            $exTblRows = 1 + $excludedRows.Count
+            $sel.Tables.Add($sel.Range, $exTblRows, 3) | Out-Null
+            $exTbl = $doc.Tables($doc.Tables.Count)
+            $exTbl.Borders.Enable = 1
+            $exTbl.Borders.OutsideLineStyle = 1
+            $exTbl.Borders.InsideLineStyle = 1
+            $exTbl.AllowAutoFit = $false
+            $exWidths = @(100, 200, 240)
+            for ($c=1; $c -le 3; $c++) { $exTbl.Columns($c).Width = $exWidths[$c-1] }
+            for ($r=1; $r -le $exTblRows; $r++) {
+                $exTbl.Rows($r).Height = 14
+                $exTbl.Rows($r).HeightRule = 2
+            }
+            $exHeaders = @("帳號","姓名","原因")
+            for ($c=1; $c -le 3; $c++) {
+                $cell = $exTbl.Cell(1,$c).Range
+                $cell.Text = $exHeaders[$c-1]
+                $cell.Font.Name="標楷體"; $cell.Font.Size=10; $cell.Font.Bold=$true
+                $cell.ParagraphFormat.Alignment=1
+                $cell.ParagraphFormat.SpaceAfter=0; $cell.ParagraphFormat.SpaceBefore=0
+                $cell.ParagraphFormat.LineSpacingRule=4; $cell.ParagraphFormat.LineSpacing=11
+            }
+            for ($r=0; $r -lt $excludedRows.Count; $r++) {
+                $er = $excludedRows[$r]
+                $eName = if ($er.Name1) { $er.Name1.Trim() } else { "" }
+                $eReason = if ($er.原因) { $er.原因.Trim() } else { "放棄寄發" }
+                $evals = @($er.AccNo, $eName, $eReason)
+                for ($c=1; $c -le 3; $c++) {
+                    $cell = $exTbl.Cell(2+$r,$c).Range
+                    $cell.Text = $evals[$c-1]
+                    $cell.Font.Name="標楷體"; $cell.Font.Size=10
+                    $cell.ParagraphFormat.Alignment=1
+                    $cell.ParagraphFormat.SpaceAfter=0; $cell.ParagraphFormat.SpaceBefore=0
+                    $cell.ParagraphFormat.LineSpacingRule=4; $cell.ParagraphFormat.LineSpacing=11
+                    if ($c -eq 1 -or $c -eq 2) { $cell.ParagraphFormat.Alignment=0 }
+                }
+            }
+            $sel.EndKey(6) | Out-Null
+            $sel.TypeParagraph()
+        }
     }
 
     # ── 儲存 ──────────────────────────────────────────────────
