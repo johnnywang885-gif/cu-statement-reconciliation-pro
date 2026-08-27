@@ -120,15 +120,30 @@ if (-not [string]::IsNullOrEmpty($reportDate) -and $reportDate -notmatch '/') {
     }
 }
 
+if (-not [string]::IsNullOrEmpty($CoopName)) { $coopName = $CoopName }
+
+# 非互動情境下 Read-Host 會造成「看似卡住」，改為自動 fallback
+if ([string]::IsNullOrEmpty($reportDate) -and [string]::IsNullOrEmpty($ReportDate)) {
+    # 嘗試用今天日期（ROC 格式）避免阻塞
+    $now = Get-Date
+    $rocY = $now.Year - 1911
+    $reportDate = "$rocY/$($now.ToString('MM/dd'))"
+    Write-Host "  警告：無法從 CUB.MDB 讀取日期，改用今天 $reportDate" -ForegroundColor Yellow
+} elseif (-not [string]::IsNullOrEmpty($reportDate) -and [string]::IsNullOrEmpty($ReportDate)) {
+    $ReportDate = $reportDate
+} elseif ([string]::IsNullOrEmpty($ReportDate)) {
+    $ReportDate = $reportDate
+}
 if ([string]::IsNullOrEmpty($ReportDate)) {
     $ReportDate = Read-Host "無法從 CUB.MDB 讀取資料時點，請輸入日期（如 115/8/24）"
+    if ([string]::IsNullOrEmpty($ReportDate)) { Write-Host "  未輸入日期，終止" -ForegroundColor Red; exit 1 }
 }
 Write-Host "  資料時點: $ReportDate" -ForegroundColor DarkGray
 
-if ([string]::IsNullOrEmpty($coopName) -and [string]::IsNullOrEmpty($CoopName)) {
-    $coopName = Read-Host "無法從 CUB.MDB 讀取合作社名，請輸入合作社名稱（如 南投縣十方儲蓄互助社）"
+if ([string]::IsNullOrEmpty($coopName)) {
+    Write-Host "  警告：無法從 CUB.MDB 讀取合作社名，改用預設" -ForegroundColor Yellow
+    $coopName = "南投縣十方儲蓄互助社"
 }
-if (-not [string]::IsNullOrEmpty($CoopName)) { $coopName = $CoopName }
 Write-Host "  合作社名: $coopName" -ForegroundColor DarkGray
 
 # ── 輔助函式 ──────────────────────────────────────────────────────
@@ -159,26 +174,90 @@ function Format-Range {
     }
 }
 
+# ── Preflight：清理殘留 Word / 鎖定檔，避免 COM 卡死 ───────────────
+function Clear-StaleWordLocks {
+    try {
+        Get-ChildItem -Path $PSScriptRoot -Filter "~`$*.docx" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path (Join-Path $PSScriptRoot "對帳單") -Filter "~`$*" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        $asdDir = Join-Path $env:APPDATA "Microsoft\Word"
+        if (Test-Path $asdDir) {
+            Get-ChildItem -Path $asdDir -Filter "~WRL*.tmp" -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -Path $asdDir -Filter "*.asd" -Force -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } | Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+    } catch {}
+}
+function Stop-StaleWord {
+    param([int]$TimeoutSec = 5)
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='WINWORD.EXE'" -ErrorAction SilentlyContinue
+        foreach ($p in $procs) {
+            $cmd = $p.CommandLine
+            # 只清 /Automation 殘留；若有可見主視窗且非 Automation 則保留（避免關掉使用者正在編輯的文件）
+            $isAutomation = $cmd -match "/Automation"
+            $hasVisibleTitle = $false
+            try {
+                $procObj = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+                if ($procObj -and $procObj.MainWindowTitle) { $hasVisibleTitle = $true }
+            } catch {}
+            if ($isAutomation -or -not $hasVisibleTitle) {
+                Write-Host "  清理殘留 Word 行程 PID $($p.ProcessId) ($cmd)" -ForegroundColor DarkGray
+                try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+            }
+        }
+        Start-Sleep -Seconds 1
+    } catch {}
+}
+Clear-StaleWordLocks
+Stop-StaleWord
+
 # ── 產生 Word → PDF ──────────────────────────────────────────────
 $word = $null
 $doc = $null
 $scriptSuccess = $false
 
 try {
-    $word = New-Object -ComObject Word.Application
-    $word.Visible = $false
-    $word.DisplayAlerts = 0
+    # Word 啟動（帶重試；逾時由外層呼叫的 bat/pwsh 控制，避免 Job 造成二次阻塞）
+    $word = $null
+    $maxRetries = 3
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        try {
+            if ($attempt -gt 1) { Write-Host "  重試 Word 啟動 ($attempt/$maxRetries)..." -ForegroundColor Yellow }
+            $word = New-Object -ComObject Word.Application
+            $word.Visible = $false
+            $word.DisplayAlerts = 0  # wdAlertsNone
+            try { $word.AutomationSecurity = 3 } catch {}  # msoAutomationSecurityForceDisable
+            try { $word.ScreenUpdating = $false } catch {}
+            try { $word.Options.CheckSpellingAsYouType = $false } catch {}
+            try { $word.Options.CheckGrammarAsYouType = $false } catch {}
+            break
+        } catch {
+            Write-Host "  Word 啟動失敗: $($_.Exception.Message)" -ForegroundColor Yellow
+            $word = $null
+            if ($attempt -lt $maxRetries) { Stop-StaleWord; Clear-StaleWordLocks; Start-Sleep -Seconds 2 } else { throw }
+        }
+    }
+    if (-not $word) { throw "無法啟動 Word，請檢查 Office 安裝或增益集" }
+    Write-Host "  Word 已啟動" -ForegroundColor DarkGray
 
+    Write-Host "  建立文件..." -ForegroundColor DarkGray
     $doc = $word.Documents.Add()
+    Write-Host "  文件已建立" -ForegroundColor DarkGray
     $sel = $word.Selection
+    Write-Host "  設定版面..." -ForegroundColor DarkGray
 
     $doc.PageSetup.TopMargin    = 28.35
+    Write-Host "    TopMargin OK" -ForegroundColor DarkGray
     $doc.PageSetup.BottomMargin = 8.5
+    Write-Host "    BottomMargin OK" -ForegroundColor DarkGray
     $doc.PageSetup.LeftMargin   = 28.35
+    Write-Host "    LeftMargin OK" -ForegroundColor DarkGray
     $doc.PageSetup.RightMargin  = 28.35
+    Write-Host "    RightMargin OK" -ForegroundColor DarkGray
 
+    Write-Host "  開始產生 $($validRows.Count) 筆..." -ForegroundColor Yellow
     $rowIdx = 0
     foreach ($row in $validRows) {
+        if ($rowIdx % 10 -eq 0) { Write-Host "    進度 $rowIdx/$($validRows.Count)..." -ForegroundColor DarkGray }
         $rowIdx++
 
         $addrRaw  = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
