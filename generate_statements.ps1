@@ -71,7 +71,7 @@ if ($daoAvailable -and (Test-Path $CubPath)) {
         $rs.Close()
         if ($kPara.ContainsKey("eDate") -and $kPara["eDate"]) { $reportDate = [string]$kPara["eDate"] }
         $rsName = $db.OpenRecordset("SELECT ACCNM FROM SER WHERE ACCNO='000000'")
-        if (-not $rsName.EOF) { $val = $rsName.Fields["ACCNM"].Value; if ($val) { $coopName = [string]$val } }
+        if ($rsName.EOF) {} else { $val = $rsName.Fields["ACCNM"].Value; if ($val) { $coopName = [string]$val.Trim() } }
         $rsName.Close()
         $db.Close()
         [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($dbe)
@@ -169,8 +169,13 @@ function Write-AddressBlock {
     $Sel.TypeText($addrLine)
     $Sel.Paragraphs.Last.Range.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
     $Sel.TypeParagraph()
-    $Sel.TypeText("$Name 君  啟")
-    $Sel.Paragraphs.Last.Range.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
+    # 社員姓名 + 君啟（14pt 粗體標楷體）
+    $Sel.TypeText("$Name  君啟")
+    $nameRange = $Sel.Paragraphs.Last.Range
+    $nameRange.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
+    $nameRange.Font.Size = 14
+    $nameRange.Font.Bold = 1
+    $nameRange.Font.Name = "標楷體"
     $Sel.TypeParagraph()
     $Sel.Range.ParagraphFormat.Alignment = 0  # wdAlignParagraphLeft
     $Sel.TypeParagraph()
@@ -226,16 +231,15 @@ function Write-StatementTable {
 
 function Write-AssociationInfo {
     param($Sel)
-    $Sel.TypeText("404")
-    $Sel.TypeParagraph()
-    $Sel.TypeText("台中市北區北平路一段33號")
-    $Sel.TypeParagraph()
-    $Sel.TypeText("中華民國儲蓄互助協會")
-    $Sel.TypeParagraph()
-    $Sel.TypeText("電話：           04-22917272~8603")
-    $Sel.TypeParagraph()
-    $Sel.TypeText("傳真：           04-22936903")
-    $Sel.TypeParagraph()
+    $lines = @("404", "台中市北區北平路一段33號", "中華民國儲蓄互助協會",
+               "電話：           04-22917272~8603", "傳真：           04-22936903")
+    foreach ($line in $lines) {
+        $Sel.TypeText($line)
+        $Sel.TypeParagraph()
+        # 設定行高 0.2（wdLineSpaceMultiple=5, 0.2*12=2.4）
+        $Sel.Paragraphs.Last.Range.ParagraphFormat.LineSpacingRule = 5
+        $Sel.Paragraphs.Last.Range.ParagraphFormat.LineSpacing = 2.4
+    }
     $Sel.TypeParagraph()
 }
 
@@ -256,15 +260,6 @@ try {
     $word = New-Object -ComObject Word.Application
     $word.Visible = $false
     $word.DisplayAlerts = 0
-
-    # 設定印表機（避免 PaperSize 錯誤）
-    try {
-        $word.ActivePrinter = "Microsoft Print to PDF"
-        Write-Host "  印表機: Microsoft Print to PDF" -ForegroundColor DarkGray
-    }
-    catch {
-        Write-Host "  未找到 Microsoft Print to PDF，嘗試使用預設印表機" -ForegroundColor Yellow
-    }
 
     $doc = $word.Documents.Add()
     $sel = $word.Selection
@@ -321,9 +316,7 @@ try {
 
         # ── 頁尾 ──────────────────────────────────────────────────
         $accNo = if ($row.AccNo) { $row.AccNo } else { "" }
-        $sel.TypeText("帳號:                     社員:                                                                                SN:    $rowIdx")
-        $sel.TypeParagraph()
-        $sel.TypeText("           $accNo                                                      (簽名或蓋章)")
+        $sel.TypeText("帳號: $accNo                    社員: $($name1)                                                                          SN:    $rowIdx    (簽名或蓋章)")
     }
 
     # ── 存檔 ──────────────────────────────────────────────────────
@@ -333,14 +326,15 @@ try {
     $docxPath = Join-Path $outDir "對帳單_合併.docx"
     $pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
 
-    $doc.SaveAs2($docxPath, 16)  # wdFormatDocumentDefault = 16
-    # 移除 Word 自動設定的 Hidden 屬性
-    Set-ItemProperty -Path $docxPath -Name Attributes -Value 'Normal' -ErrorAction SilentlyContinue
-    Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
-
-    # 另存 PDF — 用 ExportAsFixedFormat 避免覆蓋 DOCX
-    $doc.ExportAsFixedFormat($pdfPath, 17)  # wdExportFormatPDF = 17
+    # 直接匯出 PDF
+    $doc.SaveAs2($pdfPath, 17)
     Write-Host "PDF 已儲存: $pdfPath" -ForegroundColor Green
+
+    # 另存 DOCX
+    $doc.SaveAs2($docxPath, 16)
+    $f = Get-Item $docxPath -Force
+    $f.Attributes = 'Normal'
+    Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
 
     # ── 個別 PDF（可選）────────────────────────────────────────────
     if ($IndividualPdf) {
@@ -373,9 +367,7 @@ try {
             $r2 = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
             Write-StatementTable $singleDoc $singleSel $s2 $l2 $r2
 
-            $singleSel.TypeText("帳號:                     社員:                                                                                SN:    $sn")
-            $singleSel.TypeParagraph()
-            $singleSel.TypeText("           $($row.AccNo)                                                      (簽名或蓋章)")
+            $singleSel.TypeText("帳號: $($row.AccNo)                    社員: $($name2)                                                                          SN:    $sn    (簽名或蓋章)")
 
             $acc = if ($row.AccNo) { $row.AccNo } else { "000000" }
             $safeName = Sanitize-Filename $name2

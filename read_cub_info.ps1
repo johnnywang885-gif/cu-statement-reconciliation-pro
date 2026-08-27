@@ -38,7 +38,7 @@ try {
     $rsName = $db.OpenRecordset("SELECT ACCNM FROM SER WHERE ACCNO='000000'")
     if (-not $rsName.EOF) {
         $val = $rsName.Fields["ACCNM"].Value
-        if ($val) { $coopName = [string]$val }
+        if ($val) { $coopName = [string]$val.Trim() }
     }
     $rsName.Close()
 
