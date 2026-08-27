@@ -112,7 +112,7 @@ Clear-StaleWordLocks; Stop-StaleWord
 
 # ── 產生 Word → PDF ──────────────────────────────────────────────
 $wNs = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-$rowsPerPage = 40
+$rowsPerPage = 45
 
 # 建立臨時 DOCX 用 Open XML（複製範本結構簡化）
 # 為求快速與穩定，直接用 Word COM 建立明細表（40 筆/頁，分頁）
@@ -127,12 +127,12 @@ try {
     $doc = $word.Documents.Add()
     $sel = $word.Selection
 
-    # 版面：A4 窄邊界
-    $doc.PageSetup.TopMargin = 36      # 0.5"
-    $doc.PageSetup.BottomMargin = 36
+    # 版面：A4 窄邊界（縮小上下邊界以容納更多列）
+    $doc.PageSetup.TopMargin = 28
+    $doc.PageSetup.BottomMargin = 28
     $doc.PageSetup.LeftMargin = 36
     $doc.PageSetup.RightMargin = 36
-    $doc.PageSetup.HeaderDistance = 28
+    $doc.PageSetup.HeaderDistance = 14
 
     $totalPages = [Math]::Ceiling($validRows.Count / $rowsPerPage)
     Write-Host "  產生 $totalPages 頁，每頁 $rowsPerPage 筆..." -ForegroundColor Yellow
@@ -149,24 +149,38 @@ try {
             # 分頁
             $sel.InsertBreak(7) # wdPageBreak
         }
-        # 合作社名
+        # 合作社名（縮小上下間距）
         $p = $sel.Paragraphs.Last.Range
-        $p.ParagraphFormat.Alignment = 1 # center
+        $p.ParagraphFormat.Alignment = 1
+        $p.ParagraphFormat.SpaceAfter = 0
+        $p.ParagraphFormat.SpaceBefore = 0
+        $p.ParagraphFormat.LineSpacingRule = 4; $p.ParagraphFormat.LineSpacing = 12
         $p.Font.Name = "標楷體"; $p.Font.Size = 14; $p.Font.Bold = $true
         $sel.TypeText("南投縣 十方 儲蓄互助社")
         $sel.TypeParagraph()
-        # 明細標題
+        # 明細標題（緊貼）
         $p = $sel.Paragraphs.Last.Range
         $p.ParagraphFormat.Alignment = 1
+        $p.ParagraphFormat.SpaceAfter = 2
+        $p.ParagraphFormat.SpaceBefore = 0
+        $p.ParagraphFormat.LineSpacingRule = 4; $p.ParagraphFormat.LineSpacing = 12
         $p.Font.Name = "標楷體"; $p.Font.Size = 14; $p.Font.Bold = $true
         $sel.TypeText("對帳單明細")
         $sel.TypeParagraph()
-        # 頁次（靠右）
+        # 頁次（靠右，緊貼表格）
         $p = $sel.Paragraphs.Last.Range
-        $p.ParagraphFormat.Alignment = 2 # right
+        $p.ParagraphFormat.Alignment = 2
+        $p.ParagraphFormat.SpaceAfter = 2
+        $p.ParagraphFormat.SpaceBefore = 0
+        $p.ParagraphFormat.LineSpacingRule = 4; $p.ParagraphFormat.LineSpacing = 10
         $p.Font.Name = "標楷體"; $p.Font.Size = 9
         $sel.TypeText("頁次： $($pageIdx+1) / $totalPages")
         $sel.TypeParagraph()
+        # 表格前再壓縮一段
+        $p = $sel.Paragraphs.Last.Range
+        $p.ParagraphFormat.SpaceAfter = 0
+        $p.ParagraphFormat.SpaceBefore = 0
+        $p.ParagraphFormat.LineSpacingRule = 4; $p.ParagraphFormat.LineSpacing = 2
 
         # ── 表格 ──────────────────────────────────────────────
         # 7 欄：帳號, 姓名, 寄發日期, 回收日期, 正確, 基準日期, 更正事項
@@ -182,9 +196,9 @@ try {
         # 欄寬 (總寬約 540pt)
         $widths = @(60, 80, 75, 75, 45, 75, 130)
         for ($c=1; $c -le $cols; $c++) { $tbl.Columns($c).Width = $widths[$c-1] }
-        # 列高固定，確保 40 列可容納於一頁
+        # 列高固定（縮小以容納 45 列）
         for ($r=1; $r -le $tblRows; $r++) {
-            $tbl.Rows($r).Height = 14
+            $tbl.Rows($r).Height = 12
             $tbl.Rows($r).HeightRule = 2 # wdRowHeightExactly
         }
 

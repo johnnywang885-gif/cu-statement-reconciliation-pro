@@ -147,6 +147,21 @@ echo.
 pause
 goto MENU
 
+:GENERATE_DETAIL
+cls
+echo.
+echo 正在產生寄發明細表...
+echo.
+if "%SELECTED_CUB%"=="" (
+    echo 錯誤：尚未選擇一個 CUB.MDB，請先選擇。
+    pause
+    goto SELECT_FILE
+)
+pwsh -ExecutionPolicy Bypass -File "%~dp0generate_detail_list.ps1" -CubPath "%SELECTED_CUB%" -CubPassword "%CUB_PWD%"
+echo.
+pause
+goto MENU
+
 :END
 cls
 echo.
