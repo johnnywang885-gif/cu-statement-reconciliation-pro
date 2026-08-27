@@ -1,4 +1,4 @@
-﻿# generate_statements.ps1 — Word 套印對帳單，一次性產出 PDF
+# generate_statements.ps1 — Word 套印對帳單，一次性產出 PDF
 # 用法:
 #   .\generate_statements.ps1                                    (自動找最新 CSV)
 #   .\generate_statements.ps1 -CsvPath "CUB_異常社員_Top5Pct_xxx.csv"
@@ -56,7 +56,6 @@ if ($CubPath -eq "") {
 }
 $CubPath = [System.IO.Path]::GetFullPath($CubPath)
 
-# 嘗試在當前 pwsh 直接用 DAO（32-bit 環境）
 $daoAvailable = $false
 try { $null = New-Object -ComObject DAO.DBEngine.120; $daoAvailable = $true } catch {}
 
@@ -81,7 +80,6 @@ if ($daoAvailable -and (Test-Path $CubPath)) {
     }
 }
 
-# DAO 不可用時（64-bit pwsh），呼叫32-bit read_cub_info.ps1
 if ([string]::IsNullOrEmpty($coopName) -or [string]::IsNullOrEmpty($reportDate)) {
     $ps32 = "$env:SystemRoot\SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
     $infoScript = Join-Path $PSScriptRoot "read_cub_info.ps1"
@@ -109,7 +107,6 @@ if ([string]::IsNullOrEmpty($coopName) -or [string]::IsNullOrEmpty($reportDate))
     }
 }
 
-# 格式化日期（從 DAO 直接讀取時的 rawDate 處理）
 if (-not [string]::IsNullOrEmpty($reportDate) -and $reportDate -notmatch '/') {
     $rawDate = $reportDate
     if ($rawDate -match '^\d{7}$') {
@@ -123,13 +120,11 @@ if (-not [string]::IsNullOrEmpty($reportDate) -and $reportDate -notmatch '/') {
     }
 }
 
-# 若日期仍為空，詢問使用者
 if ([string]::IsNullOrEmpty($ReportDate)) {
     $ReportDate = Read-Host "無法從 CUB.MDB 讀取資料時點，請輸入日期（如 115/8/24）"
 }
 Write-Host "  資料時點: $ReportDate" -ForegroundColor DarkGray
 
-# 若合作社名仍為空，詢問使用者
 if ([string]::IsNullOrEmpty($coopName) -and [string]::IsNullOrEmpty($CoopName)) {
     $coopName = Read-Host "無法從 CUB.MDB 讀取合作社名，請輸入合作社名稱（如 南投縣十方儲蓄互助社）"
 }
@@ -137,170 +132,31 @@ if (-not [string]::IsNullOrEmpty($CoopName)) { $coopName = $CoopName }
 Write-Host "  合作社名: $coopName" -ForegroundColor DarkGray
 
 # ── 輔助函式 ──────────────────────────────────────────────────────
-function Set-CellText {
-    param($Table, [int]$Row, [int]$Col, [string]$Text, [int]$Bold = 0, [int]$Align = 0)
-    $cell = $Table.Cell($Row, $Col)
-    $r = $cell.Range
-    $r.Text = $Text
-    $r.Font.Name = "標楷體"
-    $r.Font.Bold = 1
-    if ($Align) { $r.ParagraphFormat.Alignment = $Align }
-    $r.ParagraphFormat.LineSpacingRule = 5  # wdLineSpaceMultiple
-    $r.ParagraphFormat.LineSpacing = 2.4    # 0.2 lines
-    $r.Collapse(0) | Out-Null
-}
-
-function Write-FoldLine {
-    param($Sel)
-    $Sel.TypeParagraph()
-    $pRange = $Sel.Paragraphs.Last.Range
-    $pRange.Borders.Item(3).LineStyle = 1   # wdBorderBottom = 3, wdBorderSingle = 1
-    $pRange.Borders.Item(3).LineWidth = 6   # 1.5pt
-    $pRange.Borders.Item(3).ColorIndex = 1  # wdBlack
-}
-
-function Write-BlankArea {
-    param($Sel, $Doc)
-    # 範本：8 個空行（上方 1/3，三折第一折）
-    for ($i = 0; $i -lt 8; $i++) { $Sel.TypeParagraph() }
-}
-
-function Write-AddressBlock {
-    param($Sel, [string]$PostalCode, [string]$Address, [string]$Name)
-    # 地址行（標楷體 14pt, 置中, 底線）
-    $addrLine = if ($PostalCode) { "$PostalCode  $Address" } else { $Address }
-    $Sel.TypeText($addrLine)
-    $addrRange = $Sel.Paragraphs.Last.Range
-    $addrRange.ParagraphFormat.Alignment = 1  # wdAlignParagraphCenter
-    $addrRange.Font.Name = "標楷體"
-    $addrRange.Font.Size = 14
-    $addrRange.Borders.Item(3).LineStyle = 1
-    $addrRange.Borders.Item(3).LineWidth = 6
-    $addrRange.Borders.Item(3).ColorIndex = 1
-    $addrRange.ParagraphFormat.LineSpacingRule = 5  # wdLineSpaceMultiple
-    $addrRange.ParagraphFormat.LineSpacing = 2.4    # 0.2 lines
-    $Sel.TypeParagraph()
-    # 姓名+君啟（標楷體 14pt 粗體, 置中, 底線）
-    $Sel.TypeText("$Name  君啟")
-    $nameRange = $Sel.Paragraphs.Last.Range
-    $nameRange.ParagraphFormat.Alignment = 1
-    $nameRange.Font.Name = "標楷體"
-    $nameRange.Font.Size = 14
-    $nameRange.Font.Bold = 1
-    $nameRange.Borders.Item(3).LineStyle = 1
-    $nameRange.Borders.Item(3).LineWidth = 6
-    $nameRange.Borders.Item(3).ColorIndex = 1
-    $nameRange.ParagraphFormat.LineSpacingRule = 5
-    $nameRange.ParagraphFormat.LineSpacing = 2.4
-    $Sel.TypeParagraph()
-    # 空行（置中, 粗體, 底線）
-    $Sel.Range.ParagraphFormat.Alignment = 1
-    $Sel.TypeParagraph()
-    $emptyRange = $Sel.Paragraphs.Last.Range
-    $emptyRange.ParagraphFormat.Alignment = 1
-    $emptyRange.Font.Name = "標楷體"
-    $emptyRange.Font.Size = 14
-    $emptyRange.Font.Bold = 1
-    $emptyRange.Borders.Item(3).LineStyle = 1
-    $emptyRange.Borders.Item(3).LineWidth = 6
-    $emptyRange.Borders.Item(3).ColorIndex = 1
-    $emptyRange.ParagraphFormat.LineSpacingRule = 5
-    $emptyRange.ParagraphFormat.LineSpacing = 2.4
-}
-
-function Write-LetterBody {
-    param($Sel, [string]$CoopName, [string]$Date)
-    # 設定段落格式（標楷體 14pt 粗體, exact 14pt 行高, 底線）
-    $Sel.TypeText("親愛的社員您好:")
-    $p1 = $Sel.Paragraphs.Last.Range
-    $p1.Font.Name = "標楷體"; $p1.Font.Size = 14; $p1.Font.Bold = 1
-    $p1.Borders.Item(3).LineStyle = 1; $p1.Borders.Item(3).LineWidth = 6; $p1.Borders.Item(3).ColorIndex = 1
-    $p1.ParagraphFormat.LineSpacingRule = 3; $p1.ParagraphFormat.LineSpacing = 14
-    $Sel.TypeParagraph()
-    $Sel.TypeText("　　本對帳單乃由中華民國儲蓄互助協會督導組寄發，係為稽核儲蓄互助社之帳務及保障您的權益所做的例行查核對帳，您在 $CoopName 帳戶至 $Date 止各項餘額如下表。為維護您權益，請按您的存摺金額填入後，將此單以傳真方式或郵寄擲回。謝謝您的合作！")
-    $p2 = $Sel.Paragraphs.Last.Range
-    $p2.Font.Name = "標楷體"; $p2.Font.Size = 14; $p2.Font.Bold = 1
-    $p2.Borders.Item(3).LineStyle = 1; $p2.Borders.Item(3).LineWidth = 6; $p2.Borders.Item(3).ColorIndex = 1
-    $p2.ParagraphFormat.LineSpacingRule = 3; $p2.ParagraphFormat.LineSpacing = 14
-    $Sel.TypeParagraph()
-}
-
-function Write-StatementTable {
-    param($Doc, $Sel, [long]$Share, [long]$Loan, [long]$Reserve)
-    $tableData = @(
-        @("股　金",    $Share,   "□正確　□錯誤：實有金額　　　　　"),
-        @("貸　款",    $Loan,    "□正確　□錯誤：實有金額　　　　　"),
-        @("備　轉　金", $Reserve, "□正確　□錯誤：實有金額　　　　　"),
-        @("備　註",    "",       "")
-    )
-
-    $numRows = $tableData.Count + 1
-    $Sel.Tables.Add($Sel.Range, $numRows, 3) | Out-Null
-    $tbl = $Sel.Tables(1)
-    $tbl.Borders.Enable = 1
-    $tbl.Borders.OutsideLineStyle = 1
-    $tbl.Borders.InsideLineStyle   = 1
-    $tbl.Columns(1).Width = 116
-    $tbl.Columns(2).Width = 95
-    $tbl.Columns(3).Width = 323
-
-    # 表頭（標楷體粗體）
-    Set-CellText $tbl 1 1 "帳目"                   -Bold 1 -Align 1
-    Set-CellText $tbl 1 2 "餘額"                   -Bold 1 -Align 1
-    Set-CellText $tbl 1 3 "核 對 勘 誤 回 函 說 明" -Bold 1 -Align 1
-
-    # 資料列（標楷體粗體）
-    for ($i = 0; $i -lt $tableData.Count; $i++) {
-        $r = $i + 2
-        $val = $tableData[$i][1]
-        $valStr = if ($val -is [string]) { $val } else { "{0:N0}" -f $val }
-        Set-CellText $tbl $r 1 $tableData[$i][0] -Bold 1
-        Set-CellText $tbl $r 2 $valStr -Bold 1 -Align 2
-        Set-CellText $tbl $r 3 $tableData[$i][2] -Bold 1
-    }
-
-    $Sel.EndOf(15) | Out-Null
-    $Sel.MoveDown() | Out-Null
-    $Sel.TypeParagraph()
-    # 表格後空行（底線 sz=6, space=21, 標楷體粗體）
-    $afterTbl = $Sel.Paragraphs.Last.Range
-    $afterTbl.Font.Name = "標楷體"; $afterTbl.Font.Bold = 1
-    $afterTbl.Borders.Item(3).LineStyle = 1; $afterTbl.Borders.Item(3).LineWidth = 6; $afterTbl.Borders.Item(3).ColorIndex = 1
-    $afterTbl.ParagraphFormat.LineSpacingRule = 5; $afterTbl.ParagraphFormat.LineSpacing = 2.4
-}
-
-function Write-AssociationInfo {
-    param($Sel)
-    $lines = @("404", "台中市北區北平路一段33號", "中華民國儲蓄互助協會",
-               "電話：04-22917272~8603", "傳真：04-22936903")
-    foreach ($line in $lines) {
-        $Sel.TypeText($line)
-        $Sel.TypeParagraph()
-        $pRange = $Sel.Paragraphs.Last.Range
-        # 底線（與範本一致：single, sz=6）
-        $pRange.Borders.Item(3).LineStyle = 1
-        $pRange.Borders.Item(3).LineWidth = 6
-        $pRange.Borders.Item(3).ColorIndex = 1
-        # 行高 exact 240 twips = 12pt
-        $pRange.ParagraphFormat.LineSpacingRule = 3  # wdLineSpaceExactly
-        $pRange.ParagraphFormat.LineSpacing = 12
-    }
-    # 空行（協會資訊與收件人之間的間隔）
-    $Sel.TypeParagraph()
-    $pRange = $Sel.Paragraphs.Last.Range
-    $pRange.Borders.Item(3).LineStyle = 1
-    $pRange.Borders.Item(3).LineWidth = 6
-    $pRange.Borders.Item(3).ColorIndex = 1
-    $pRange.ParagraphFormat.LineSpacingRule = 3
-    $pRange.ParagraphFormat.LineSpacing = 12
-}
-
 function Sanitize-Filename {
     param([string]$Name)
     $invalid = [IO.Path]::GetInvalidFileNameChars()
     $result = $Name
     foreach ($c in $invalid) { $result = $result.Replace([string]$c, '_') }
     return $result
+}
+
+function Format-Range {
+    param($Range, [int]$FontSize=14, [string]$FontName="標楷體", [int]$Bold=0,
+          [int]$Align=0, [int]$LineRule=4, [double]$LineVal=12,
+          [int]$BorderBot=1)
+    $Range.Font.Name = $FontName
+    $Range.Font.Size = $FontSize
+    $Range.Font.Bold = $Bold
+    $Range.ParagraphFormat.Alignment = $Align
+    $Range.ParagraphFormat.LineSpacingRule = $LineRule
+    $Range.ParagraphFormat.LineSpacing = $LineVal
+    $Range.ParagraphFormat.SpaceAfter = 0
+    $Range.ParagraphFormat.SpaceBefore = 0
+    if ($BorderBot) {
+        $Range.Borders.Item(3).LineStyle = 1
+        $Range.Borders.Item(3).LineWidth = 6
+        $Range.Borders.Item(3).ColorIndex = 1
+    }
 }
 
 # ── 產生 Word → PDF ──────────────────────────────────────────────
@@ -316,76 +172,154 @@ try {
     $doc = $word.Documents.Add()
     $sel = $word.Selection
 
-    # A4、邊界（配合範本）
-    $doc.PageSetup.PaperSize = 1
-    $doc.PageSetup.TopMargin    = 28
-    $doc.PageSetup.BottomMargin = 8
-    $doc.PageSetup.LeftMargin   = 28
-    $doc.PageSetup.RightMargin  = 28
+    $doc.PageSetup.TopMargin    = 28.35
+    $doc.PageSetup.BottomMargin = 8.5
+    $doc.PageSetup.LeftMargin   = 28.35
+    $doc.PageSetup.RightMargin  = 28.35
 
     $rowIdx = 0
     foreach ($row in $validRows) {
         $rowIdx++
 
-        if ($rowIdx -gt 1) {
-            $doc.Words.Last.InsertBreak(1) | Out-Null
-        }
-
-        # ── 解析郵遞區號與地址 ─────────────────────────────────────
         $addrRaw  = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
-        $postalCode = ""
-        $address    = $addrRaw
+        $postalCode = ""; $address = $addrRaw
         if ($addrRaw -match '^(\d{3,5})(.+)') {
-            $postalCode = $Matches[1]
-            $address    = $Matches[2].Trim()
+            $postalCode = $Matches[1]; $address = $Matches[2].Trim()
         }
         $name1 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
 
-        # ── 空白区域（上方 1/3，三折第一折）─────────────────────
-        Write-BlankArea $sel $doc
-
-        # ── 第一條摺線 ────────────────────────────────────────────
-        Write-FoldLine $sel
-
-        # ── 協會資訊 ─────────────────────────────────────────────
-        Write-AssociationInfo $sel
-
-        # ── 收件人地址（置中）────────────────────────────────────
-        Write-AddressBlock $sel $postalCode $address $name1
-
-        # ── 第二條摺線 ────────────────────────────────────────────
-        Write-FoldLine $sel
-
-        # ── 摺線與信文間的空行（標楷體 14pt 粗體, exact 280, 底線）──
-        for ($b = 0; $b -lt 2; $b++) {
+        # ── P1-P8: 空白區域 ──────────────────────────────────────
+        for ($i = 0; $i -lt 8; $i++) {
             $sel.TypeParagraph()
-            $bp = $sel.Paragraphs.Last.Range
-            $bp.Font.Name = "標楷體"; $bp.Font.Size = 14; $bp.Font.Bold = 1
-            $bp.Borders.Item(3).LineStyle = 1; $bp.Borders.Item(3).LineWidth = 6; $bp.Borders.Item(3).ColorIndex = 1
-            $bp.ParagraphFormat.LineSpacingRule = 3; $bp.ParagraphFormat.LineSpacing = 14
+            $pFmt = $sel.Paragraphs.Last.Range.ParagraphFormat
+            $pFmt.LineSpacingRule = 4
+            $pFmt.LineSpacing = 0.7
+            $pFmt.SpaceAfter = 0
+            $pFmt.SpaceBefore = 0
         }
 
-        # ── 信文 ──────────────────────────────────────────────────
-        Write-LetterBody $sel $coopName $reportDate
+        # ── P9: 第一條摺線 ───────────────────────────────────────
+        $sel.TypeParagraph()
+        $p9 = $sel.Paragraphs.Last.Range
+        Format-Range $p9 -LineRule 5 -LineVal 1
+
+        # ── P10-P14: 協會資訊（底線, exact 12pt）────────────────
+        $assocLines = @("04", "台中市北區北平路一段33號", "中華民國儲蓄互助協會",
+                        "電話：04-22917272~8603", "傳真：04-22936903")
+        foreach ($line in $assocLines) {
+            $sel.TypeText($line)
+            $sel.TypeParagraph()
+            Format-Range $sel.Paragraphs.Last.Range -LineRule 4 -LineVal 12 -BorderBot 1
+        }
+
+        # ── P15: 空行（auto 48, 底線）───────────────────────────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+        # ── P16: 收件人地址（標楷體 14pt, 置中, auto 48, 底線）──
+        $addrLine = if ($postalCode) { "$postalCode  $address" } else { $address }
+        $sel.TypeText($addrLine)
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Align 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+        # ── P17: 姓名+君啟（標楷體 14pt 粗體, 置中, auto 48, 底線）
+        $sel.TypeText("$name1  君啟")
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+        # ── P18: 空行（置中, 粗體, 標楷體, auto 48, 底線）──────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+        # ── P19: 空行（exact 14pt, 粗體, 底線）──────────────────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+        # ── P20: 空行（exact 14pt, 粗體, 底線）──────────────────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+        # ── P21: 第二條摺線（exact 14pt, 粗體）─────────────────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 0
+
+        # ── P22: 空行（exact 14pt, 粗體, 底線）──────────────────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+        # ── P23: 親愛的社員您好: ─────────────────────────────────
+        $sel.TypeText("親愛的社員您好:")
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+        # ── P24: 信文正文 ─────────────────────────────────────────
+        $sel.TypeText("　　本對帳單乃由中華民國儲蓄互助協會督導組寄發，係為稽核儲蓄互助社之帳務及保障您的權益所做的例行查核對帳，您在 $coopName 帳戶至 $reportDate 止各項餘額如下表。為維護您權益，請按您的存摺金額填入後，將此單以傳真方式或郵寄擲回。謝謝您的合作！")
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
 
         # ── 表格 ──────────────────────────────────────────────────
         $share   = if ($row.LGR_Share)   { [long]$row.LGR_Share   } else { 0 }
         $loan    = if ($row.LGR_Loan)    { [long]$row.LGR_Loan    } else { 0 }
         $Reserve = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
 
-        Write-StatementTable $doc $sel $share $loan $Reserve
+        $tableData = @(
+            @("股　金",    $share,   "□正確　□錯誤：實有金額　　　　　"),
+            @("貸　款",    $loan,    "□正確　□錯誤：實有金額　　　　　"),
+            @("備　轉　金", $Reserve, "□正確　□錯誤：實有金額　　　　　"),
+            @("備　註",    "",       "")
+        )
 
-        # ── 頁尾 ──────────────────────────────────────────────────
+        $numRows = $tableData.Count + 1
+        $sel.Tables.Add($sel.Range, $numRows, 3) | Out-Null
+        $tbl = $sel.Tables(1)
+        $tbl.Borders.Enable = 1
+        $tbl.Borders.OutsideLineStyle = 1
+        $tbl.Borders.InsideLineStyle   = 1
+        $tbl.Columns(1).Width = 116
+        $tbl.Columns(2).Width = 95
+        $tbl.Columns(3).Width = 323
+
+        # 表頭
+        $tbl.Cell(1,1).Range.Text = "帳目"
+        $tbl.Cell(1,2).Range.Text = "餘額"
+        $tbl.Cell(1,3).Range.Text = "核 對 勘 誤 回 函 說 明"
+        for ($c = 1; $c -le 3; $c++) {
+            $cr = $tbl.Cell(1,$c).Range
+            $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
+            $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
+            $cr.ParagraphFormat.Alignment = 1
+            $cr.Collapse(0) | Out-Null
+        }
+
+        # 資料列
+        for ($i = 0; $i -lt $tableData.Count; $i++) {
+            $r = $i + 2
+            $val = $tableData[$i][1]
+            $valStr = if ($val -is [string]) { $val } else { "{0:N0}" -f $val }
+            $tbl.Cell($r,1).Range.Text = $tableData[$i][0]
+            $tbl.Cell($r,2).Range.Text = $valStr
+            $tbl.Cell($r,3).Range.Text = $tableData[$i][2]
+            for ($c = 1; $c -le 3; $c++) {
+                $cr = $tbl.Cell($r,$c).Range
+                $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
+                $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
+                if ($c -eq 2) { $cr.ParagraphFormat.Alignment = 2 }
+                $cr.Collapse(0) | Out-Null
+            }
+        }
+
+        $sel.EndOf(15) | Out-Null
+        $sel.MoveDown() | Out-Null
+
+        # ── P25: 表格後空行（底線, space=21, auto 48）───────────
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+        # ── P26: 頁尾 ────────────────────────────────────────────
         $accNo = if ($row.AccNo) { $row.AccNo } else { "" }
         $sel.TypeText("帳號: $accNo                    社員:__________________(簽名或蓋章)             SN:    $rowIdx   ")
-        $footerRange = $sel.Paragraphs.Last.Range
-        $footerRange.Font.Name = "標楷體"
-        $footerRange.Font.Bold = 1
-        $footerRange.Borders.Item(3).LineStyle = 1
-        $footerRange.Borders.Item(3).LineWidth = 6
-        $footerRange.Borders.Item(3).ColorIndex = 1
-        $footerRange.ParagraphFormat.LineSpacingRule = 5
-        $footerRange.ParagraphFormat.LineSpacing = 2.4
+        $sel.TypeParagraph()
+        Format-Range $sel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
     }
 
     # ── 存檔 ──────────────────────────────────────────────────────
@@ -395,15 +329,53 @@ try {
     $docxPath = Join-Path $outDir "對帳單_合併.docx"
     $pdfPath  = Join-Path $outDir "對帳單_合併.pdf"
 
-    # 直接匯出 PDF
-    $doc.SaveAs2($pdfPath, 17)
-    Write-Host "PDF 已儲存: $pdfPath" -ForegroundColor Green
-
-    # 另存 DOCX
     $doc.SaveAs2($docxPath, 16)
     $f = Get-Item $docxPath -Force
     $f.Attributes = 'Normal'
     Write-Host "Word 已儲存: $docxPath" -ForegroundColor Green
+
+    # ── 後處理：透過 Word COM 設定 PageBreakBefore ──────────────────
+    Write-Host "後處理：加入分頁符號..." -ForegroundColor Yellow
+
+    $memberCount = 0
+    $docEnd = $doc.Content.End
+    for ($t = 2; $t -le $doc.Tables.Count; $t++) {
+        $tblEnd = $doc.Tables($t).Range.End
+        $rangeEnd = [Math]::Min($tblEnd + 5000, $docEnd)
+        if ($tblEnd -ge $docEnd) { continue }
+        $afterTbl = $doc.Range($tblEnd, $rangeEnd)
+        if ($afterTbl.Paragraphs.Count -ge 3) {
+            $p1Range = $afterTbl.Paragraphs(3).Range
+            $p1Range.ParagraphFormat.PageBreakBefore = $true
+            $memberCount++
+        }
+    }
+    Write-Host "  已為 $memberCount 筆加入 PageBreakBefore" -ForegroundColor DarkGray
+
+    # ── 收尾：讓最後一人的頁尾段落成為文件最後一段，消除多餘空頁 ──
+    # Word 文件強制結尾必須有至少一個段落；若最後一段是空白，會被
+    # 擠到最後一頁之後（多一個空白頁）。解法：刪除最後一人「帳號」
+    # 頁尾之後的所有段落，使頁尾本身成為文件最後一段（與範本一致）。
+    $lastIdx = $doc.Paragraphs.Count
+    $footerIdx = $lastIdx
+    $docEnd = $doc.Content.End
+    for ($i = $lastIdx; $i -ge [Math]::Max(2, $lastIdx - 30); $i--) {
+        $t = $doc.Paragraphs($i).Range.Text.TrimEnd("`r", "`n", [char]7)
+        if ($t.Trim() -ne '') { $footerIdx = $i; break }
+    }
+    $footerEnd = $doc.Paragraphs($footerIdx).Range.End
+    if ($footerEnd -lt $docEnd) {
+        $trailing = $doc.Range($footerEnd, $docEnd)
+        $null = $trailing.Delete()
+    }
+
+    # ── 儲存含分頁的 DOCX ─────────────────────────────────────────
+    $doc.Save()
+    Write-Host "DOCX 已更新（含分頁）: $docxPath" -ForegroundColor Green
+
+    # ── 轉 PDF ─────────────────────────────────────────────────────
+    $doc.SaveAs2($pdfPath, 17)
+    Write-Host "PDF 已儲存: $pdfPath" -ForegroundColor Green
 
     # ── 個別 PDF（可選）────────────────────────────────────────────
     if ($IndividualPdf) {
@@ -413,36 +385,112 @@ try {
             $sn++
             $singleDoc = $word.Documents.Add()
             $singleSel = $word.Selection
-            $singleDoc.PageSetup.PaperSize = 1
-            $singleDoc.PageSetup.TopMargin    = 28
-            $singleDoc.PageSetup.BottomMargin = 8
-            $singleDoc.PageSetup.LeftMargin   = 28
-            $singleDoc.PageSetup.RightMargin  = 28
+            $singleDoc.PageSetup.TopMargin    = 28.35
+            $singleDoc.PageSetup.BottomMargin = 8.5
+            $singleDoc.PageSetup.LeftMargin   = 28.35
+            $singleDoc.PageSetup.RightMargin  = 28.35
 
             $addrRaw2 = if ($row.ADDR) { $row.ADDR.Trim() } else { "" }
             $postalCode2 = ""; $address2 = $addrRaw2
             if ($addrRaw2 -match '^(\d{3,5})(.+)') { $postalCode2 = $Matches[1]; $address2 = $Matches[2].Trim() }
             $name2 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
 
-            Write-BlankArea $singleSel $singleDoc
-            Write-FoldLine $singleSel
-            Write-AssociationInfo $singleSel
-            Write-AddressBlock $singleSel $postalCode2 $address2 $name2
-            Write-FoldLine $singleSel
-            Write-LetterBody $singleSel $coopName $reportDate
+            for ($i = 0; $i -lt 8; $i++) { $singleSel.TypeParagraph() }
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -LineRule 5 -LineVal 1
+
+            foreach ($line in $assocLines) {
+                $singleSel.TypeText($line)
+                $singleSel.TypeParagraph()
+                Format-Range $singleSel.Paragraphs.Last.Range -LineRule 4 -LineVal 12 -BorderBot 1
+            }
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+            $addrLine2 = if ($postalCode2) { "$postalCode2  $address2" } else { $address2 }
+            $singleSel.TypeText($addrLine2)
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Align 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+            $singleSel.TypeText("$name2  君啟")
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Align 1 -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 0
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+            $singleSel.TypeText("親愛的社員您好:")
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
+
+            $singleSel.TypeText("　　本對帳單乃由中華民國儲蓄互助協會督導組寄發，係為稽核儲蓄互助社之帳務及保障您的權益所做的例行查核對帳，您在 $coopName 帳戶至 $reportDate 止各項餘額如下表。為維護您權益，請按您的存摺金額填入後，將此單以傳真方式或郵寄擲回。謝謝您的合作！")
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 4 -LineVal 14 -BorderBot 1
 
             $s2 = if ($row.LGR_Share)   { [long]$row.LGR_Share   } else { 0 }
             $l2 = if ($row.LGR_Loan)    { [long]$row.LGR_Loan    } else { 0 }
             $r2 = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
-            Write-StatementTable $singleDoc $singleSel $s2 $l2 $r2
+            $td2 = @(
+                @("股　金",    $s2, "□正確　□錯誤：實有金額　　　　　"),
+                @("貸　款",    $l2, "□正確　□錯誤：實有金額　　　　　"),
+                @("備　轉　金", $r2, "□正確　□錯誤：實有金額　　　　　"),
+                @("備　註",    "",  "")
+            )
+            $nr2 = $td2.Count + 1
+            $singleSel.Tables.Add($singleSel.Range, $nr2, 3) | Out-Null
+            $st2 = $singleSel.Tables(1)
+            $st2.Borders.Enable = 1
+            $st2.Borders.OutsideLineStyle = 1
+            $st2.Borders.InsideLineStyle   = 1
+            $st2.Columns(1).Width = 116
+            $st2.Columns(2).Width = 95
+            $st2.Columns(3).Width = 323
+            $st2.Cell(1,1).Range.Text = "帳目"
+            $st2.Cell(1,2).Range.Text = "餘額"
+            $st2.Cell(1,3).Range.Text = "核 對 勘 誤 回 函 說 明"
+            for ($c = 1; $c -le 3; $c++) {
+                $cr = $st2.Cell(1,$c).Range
+                $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
+                $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
+                $cr.ParagraphFormat.Alignment = 1; $cr.Collapse(0) | Out-Null
+            }
+            for ($i = 0; $i -lt $td2.Count; $i++) {
+                $ri = $i + 2
+                $vs = if ($td2[$i][1] -is [string]) { $td2[$i][1] } else { "{0:N0}" -f $td2[$i][1] }
+                $st2.Cell($ri,1).Range.Text = $td2[$i][0]
+                $st2.Cell($ri,2).Range.Text = $vs
+                $st2.Cell($ri,3).Range.Text = $td2[$i][2]
+                for ($c = 1; $c -le 3; $c++) {
+                    $cr = $st2.Cell($ri,$c).Range
+                    $cr.Font.Name = "標楷體"; $cr.Font.Bold = 1
+                    $cr.ParagraphFormat.LineSpacingRule = 5; $cr.ParagraphFormat.LineSpacing = 2.4
+                    if ($c -eq 2) { $cr.ParagraphFormat.Alignment = 2 }
+                    $cr.Collapse(0) | Out-Null
+                }
+            }
+            $singleSel.EndOf(15) | Out-Null
+            $singleSel.MoveDown() | Out-Null
+
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
 
             $singleSel.TypeText("帳號: $($row.AccNo)                    社員:__________________(簽名或蓋章)             SN:    $sn   ")
-            $singleFooter = $singleSel.Paragraphs.Last.Range
-            $singleFooter.Font.Name = "標楷體"
-            $singleFooter.Font.Bold = 1
-            $singleFooter.Borders.Item(3).LineStyle = 1
-            $singleFooter.Borders.Item(3).LineWidth = 6
-            $singleFooter.Borders.Item(3).ColorIndex = 1
+            $singleSel.TypeParagraph()
+            Format-Range $singleSel.Paragraphs.Last.Range -Bold 1 -LineRule 5 -LineVal 2.4 -BorderBot 1
 
             $acc = if ($row.AccNo) { $row.AccNo } else { "000000" }
             $safeName = Sanitize-Filename $name2
@@ -451,7 +499,6 @@ try {
             $singleDoc.Close(0)
             [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($singleDoc)
 
-            # 每 20 筆釋放記憶體
             if ($sn % 20 -eq 0) {
                 [System.GC]::Collect()
                 [System.GC]::WaitForPendingFinalizers()
@@ -485,3 +532,5 @@ finally {
     [System.GC]::WaitForPendingFinalizers()
     if ($scriptSuccess) { Write-Host "Word 已關閉" -ForegroundColor DarkGray }
 }
+
+
