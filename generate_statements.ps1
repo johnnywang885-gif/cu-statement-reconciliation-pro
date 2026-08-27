@@ -357,8 +357,8 @@ foreach ($row in $validRows) {
         $clones += $clone
     }
     # 依索引替換（對應範本 body 0-based）
-    # 15: 地址, 16: 姓名, 24: 長文, 27: 頁尾, 25: tbl 金額
-    # 注意：索引對應上段 dump：15=545地址,16=君啟,24=長文,25=tbl,27=頁尾
+    # 9: 寄件者郵遞區號 404, 15: 收件者地址, 16: 姓名, 24: 長文, 27: 頁尾, 25: tbl 金額
+    Set-ParaText -pNode $clones[9] -newText "404" -docXml $docXml -nsMgr $nsMgr
     Set-ParaText -pNode $clones[15] -newText $addrLine -docXml $docXml -nsMgr $nsMgr
     Set-ParaText -pNode $clones[16] -newText $nameLine -docXml $docXml -nsMgr $nsMgr
     Set-ParaText -pNode $clones[24] -newText $longText -docXml $docXml -nsMgr $nsMgr
@@ -508,6 +508,7 @@ try {
             $sRes   = if ($row.LGR_Reserve) { [long]$row.LGR_Reserve } else { 0 }
             $clones2 = @()
             foreach ($orig in $sNodes) { $clones2 += $orig.CloneNode($true) }
+            Set-ParaText -pNode $clones2[9] -newText "404" -docXml $sDocXml -nsMgr $sNsMgr
             Set-ParaText -pNode $clones2[15] -newText $addrLine2 -docXml $sDocXml -nsMgr $sNsMgr
             Set-ParaText -pNode $clones2[16] -newText $nameLine2 -docXml $sDocXml -nsMgr $sNsMgr
             Set-ParaText -pNode $clones2[24] -newText $long2 -docXml $sDocXml -nsMgr $sNsMgr
