@@ -146,6 +146,15 @@ if ([string]::IsNullOrEmpty($coopName)) {
 Write-Host "  合作社名: $coopName" -ForegroundColor DarkGray
 
 # ── 輔助函式 ──────────────────────────────────────────────────────
+function Get-FullCoopName {
+    param([string]$ShortName)
+    $s = $ShortName.Trim()
+    # 移除已有的前後綴再重組，確保一律為 南投縣{短名}儲蓄互助社
+    $s = $s -replace "^南投縣", "" -replace "儲蓄互助社$", ""
+    $s = $s.Trim()
+    if ([string]::IsNullOrEmpty($s)) { $s = $ShortName.Trim() }
+    return "南投縣${s}儲蓄互助社"
+}
 function Sanitize-Filename {
     param([string]$Name)
     $invalid = [IO.Path]::GetInvalidFileNameChars()
@@ -328,7 +337,8 @@ foreach ($row in $validRows) {
     $addrLine = if ($postalCode) { "$postalCode  $address" } else { $address }
     $name1 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
     $nameLine = "$name1  君啟"
-    $longText = $longTextTemplate -f $coopName, $ReportDate
+    $fullCoop = Get-FullCoopName $coopName
+    $longText = $longTextTemplate -f $fullCoop, $ReportDate
     $accNo = if ($row.AccNo) { $row.AccNo } else { "" }
     $share = if ($row.LGR_Share) { [long]$row.LGR_Share } else { 0 }
     $loan  = if ($row.LGR_Loan) { [long]$row.LGR_Loan } else { 0 }
@@ -490,7 +500,8 @@ try {
             $addrLine2 = if ($postal2) { "$postal2  $addr2" } else { $addr2 }
             $name2 = if ($row.Name1) { $row.Name1.Trim() } else { "" }
             $nameLine2 = "$name2  君啟"
-            $long2 = $longTextTemplate -f $coopName, $ReportDate
+            $fullCoop2 = Get-FullCoopName $coopName
+            $long2 = $longTextTemplate -f $fullCoop2, $ReportDate
             $acc2 = if ($row.AccNo) { $row.AccNo } else { "" }
             $sShare = if ($row.LGR_Share) { [long]$row.LGR_Share } else { 0 }
             $sLoan  = if ($row.LGR_Loan) { [long]$row.LGR_Loan } else { 0 }
